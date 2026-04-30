@@ -1,0 +1,46 @@
+# Python Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environments
+venv/
+env/
+ENV/
+.env/
+.venv/
+
+# Django-specific files
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Media and Static folders
+# (Only ignore if you want to keep uploaded media/collected static out of Git)
+media/
+static/
+staticfiles/
+
+# Environment variables (Sensitive Info)
+.env
+.flaskenv
+
+# IDE Settings (Optional but recommended)
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Testing / Coverage
+.tox/
+.coverage
+.cache
+htmlcov/
+.pytest_cache/
+.idea
+db.sqlite3
+.vs_code
+.DS_store
+.ds*
+.DS*
