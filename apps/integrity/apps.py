@@ -2,4 +2,4 @@ from django.apps import AppConfig
 
 
 class IntegrityConfig(AppConfig):
-    name = 'integrity'
+    name = 'apps.integrity'
