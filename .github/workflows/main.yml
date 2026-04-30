@@ -1,0 +1,60 @@
+name: Prime College UK LIVE CI/CD
+
+on:
+  push:
+    branches:
+      - main-branch
+
+jobs:
+  deploy:
+    name: Build and Deploy LIVE
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Verify SSH key
+        run: |
+          if [ -z "${{ secrets.PRIME_SSH_PRIVATE_KEY }}" ]; then
+            echo "SSH key missing"
+            exit 1
+          else
+            echo "SSH key detected"
+          fi
+
+      - name: Upload code to LIVE server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DEV_SSH_HOST }}
+          username: ${{ secrets.DEV_SSH_USER }}
+          key: ${{ secrets.PRIME_SSH_PRIVATE_KEY }}
+          port: ${{ secrets.DEV_SSH_PORT }}
+          source: "./"
+          target: "/var/www/primeplatformlive"
+          strip_components: 1
+          rm: false
+
+      - name: Deploy containers
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.DEV_SSH_HOST }}
+          username: ${{ secrets.DEV_SSH_USER }}
+          key: ${{ secrets.PRIME_SSH_PRIVATE_KEY }}
+          port: ${{ secrets.DEV_SSH_PORT }}
+          script: |
+            cd /var/www/primeplatformlive
+
+            echo "Building and starting containers..."
+            make start
+
+            echo "Running migrations..."
+            make migrate
+
+            echo "Ensuring superuser exists..."
+            docker compose exec -T api python manage.py setup_admin
+
+            echo "Collecting static files..."
+            make collectstatic
+
+            echo "Deployment completed successfully"
