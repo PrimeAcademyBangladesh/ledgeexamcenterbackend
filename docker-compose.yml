@@ -13,8 +13,8 @@ services:
       - /etc/examcenterleadedge/.env
     volumes:
       - .:/app
-      - staticfiles:/app/staticfiles
-      - ./media:/app/media
+      - /etc/examcenterleadedge/staticfiles:/app/staticfiles
+      - /etc/examcenterleadedge/media:/app/media
     depends_on:
       postgres:
         condition: service_healthy
@@ -52,7 +52,7 @@ services:
       - /etc/examcenterleadedge/.env
     volumes:
       - .:/app
-      - ./media:/app/media
+      - /etc/examcenterleadedge/media:/app/media
     depends_on:
       postgres:
         condition: service_healthy
@@ -80,4 +80,3 @@ services:
 
 volumes:
   postgres_data:
-  staticfiles:
