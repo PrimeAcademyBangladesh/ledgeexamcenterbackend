@@ -22,7 +22,8 @@ RUN addgroup --system app && adduser --system --ingroup app app
 # Install Python dependencies
 COPY requirements*.txt ./
 RUN pip install --upgrade pip \
-    && pip install -r requirements.txt
+    && pip install -r requirements.txt \
+    && pip install -r requirements-prod.txt
 
 # Copy project
 COPY --chown=app:app . .
