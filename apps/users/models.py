@@ -120,11 +120,10 @@ class LearnerProfile(models.Model):
         limit_choices_to={"role": Role.LEARNER},
     )
     learner_id = models.CharField(max_length=20, unique=True, editable=False, db_index=True)
-    uln = models.CharField(max_length=10, unique=True, validators=[uln_validator], db_index=True)
+    uln = models.CharField(max_length=10, unique=True, blank=True, validators=[uln_validator], db_index=True)
 
     date_of_birth = models.DateField(null=True, blank=True)
     phone = models.CharField(max_length=20, blank=True)
-    postcode = models.CharField(max_length=12, blank=True)
 
     photo = models.ImageField(upload_to="learners/photos/", null=True, blank=True)
     id_document = models.FileField(upload_to="learners/id_docs/", null=True, blank=True)
