@@ -17,3 +17,5 @@ staticfiles/
 postgres_data/
 redis_data/
 .DS_Store
+API_CONTRACTS.md
+docs

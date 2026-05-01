@@ -23,7 +23,9 @@ db.sqlite3-journal
 media/
 static/
 staticfiles/
-
+API_CONTRACTS.md
+docs/
+docs
 # Environment variables (Sensitive Info)
 .env
 .env.dev
