@@ -13,4 +13,7 @@ build/
 venv/
 db.sqlite3
 media/
+staticfiles/
+postgres_data/
+redis_data/
 .DS_Store
