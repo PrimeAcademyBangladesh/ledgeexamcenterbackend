@@ -1,0 +1,65 @@
+name: Fresh Deploy (Nuclear Reset)
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        default: "dev"
+        type: choice
+        options:
+          - dev
+          - prod
+      confirm:
+        description: 'Type "yes" to confirm wiping the database and all data'
+        required: true
+
+jobs:
+  fresh-deploy:
+    name: Wipe DB + Fresh Migrations + Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Abort if not confirmed
+        if: ${{ github.event.inputs.confirm != 'yes' }}
+        run: |
+          echo "Confirmation not provided. Aborting."
+          exit 1
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Upload code to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.LEADEDGE_SSH_HOST }}
+          username: ${{ secrets.LEADEDGE_SSH_USER }}
+          key: ${{ secrets.LEADEDGE_SSH_PRIVATE_KEY }}
+          port: ${{ secrets.LEADEDGE_SSH_PORT }}
+          source: "./"
+          target: "/var/www/examcenterleadedge"
+          strip_components: 1
+          rm: false
+          exclude: ".env,.env.prod,.env.dev,.env.example"
+
+      - name: Stop containers, wipe data, deploy fresh
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.LEADEDGE_SSH_HOST }}
+          username: ${{ secrets.LEADEDGE_SSH_USER }}
+          key: ${{ secrets.LEADEDGE_SSH_PRIVATE_KEY }}
+          port: ${{ secrets.LEADEDGE_SSH_PORT }}
+          script: |
+            cd /var/www/examcenterleadedge
+            echo "Stopping containers..."
+            make down
+            echo "Wiping postgres data..."
+            sudo rm -rf /var/data/examcenterleadedge/postgres
+            echo "Wiping media and static files..."
+            sudo rm -rf /var/data/examcenterleadedge/media
+            sudo rm -rf /var/data/examcenterleadedge/staticfiles
+            echo "Starting fresh (migrate + superadmin + collectstatic run via entrypoint)..."
+            make start
+            sudo systemctl reload nginx
+            echo "Fresh deploy on [${{ github.event.inputs.environment }}] completed"
