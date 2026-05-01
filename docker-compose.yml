@@ -3,7 +3,7 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     volumes:
-      - /var/www/examcenterleadedge/postgres_data:/var/lib/postgresql/data
+      - /var/data/examcenterleadedge/postgres:/var/lib/postgresql/data
     env_file:
       - /etc/examcenterleadedge/.env
     environment:
@@ -20,7 +20,7 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
     volumes:
-      - /var/www/examcenterleadedge/redis_data:/data
+      - /var/data/examcenterleadedge/redis:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -35,8 +35,8 @@ services:
     ports:
       - "127.0.0.1:8020:8020"
     volumes:
-      - /var/www/examcenterleadedge/media:/app/media
-      - /var/www/examcenterleadedge/staticfiles:/app/staticfiles
+      - /var/data/examcenterleadedge/media:/app/media
+      - /var/data/examcenterleadedge/staticfiles:/app/staticfiles
     depends_on:
       db:
         condition: service_healthy
@@ -49,7 +49,7 @@ services:
     env_file:
       - /etc/examcenterleadedge/.env
     volumes:
-      - /var/www/examcenterleadedge/media:/app/media
+      - /var/data/examcenterleadedge/media:/app/media
     depends_on:
       db:
         condition: service_healthy

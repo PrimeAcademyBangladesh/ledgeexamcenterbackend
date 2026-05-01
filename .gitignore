@@ -9,7 +9,9 @@ env/
 ENV/
 .env/
 .venv/
-
+.env.dev
+.env.prod
+.env.example
 # Django-specific files
 *.log
 local_settings.py
