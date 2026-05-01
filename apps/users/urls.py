@@ -1,8 +1,10 @@
 from django.urls import path
 from rest_framework_simplejwt.views import TokenRefreshView
+from drf_spectacular.utils import extend_schema
 
 from apps.users.views import LoginView, LogoutView, MeView, ChangePasswordView, ForgotPasswordView, ResetPasswordView
 
+TokenRefreshView = extend_schema(tags=["Authentication"])(TokenRefreshView)
 
 urlpatterns = [
     path("login/", LoginView.as_view(), name="token_obtain_pair"),
