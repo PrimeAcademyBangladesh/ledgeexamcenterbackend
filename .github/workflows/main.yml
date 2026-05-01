@@ -45,6 +45,6 @@ jobs:
           port: ${{ secrets.LEADEDGE_SSH_PORT }}
           script: |
             cd /var/www/examcenterleadedge
-            make start
+            make rebuild
             sudo systemctl reload nginx
             echo "PROD deployment completed"

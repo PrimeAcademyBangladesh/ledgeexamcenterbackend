@@ -52,14 +52,9 @@ jobs:
           port: ${{ secrets.LEADEDGE_SSH_PORT }}
           script: |
             cd /var/www/examcenterleadedge
-            echo "Stopping containers..."
-            make down
-            echo "Wiping postgres data..."
-            sudo rm -rf /var/data/examcenterleadedge/postgres
-            echo "Wiping media and static files..."
-            sudo rm -rf /var/data/examcenterleadedge/media
-            sudo rm -rf /var/data/examcenterleadedge/staticfiles
+            echo "Stopping containers and wiping volumes..."
+            docker compose down -v
             echo "Starting fresh (migrate + superadmin + collectstatic run via entrypoint)..."
-            make start
+            make rebuild
             sudo systemctl reload nginx
             echo "Fresh deploy on [${{ github.event.inputs.environment }}] completed"
