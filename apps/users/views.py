@@ -1,6 +1,6 @@
 from django.conf import settings
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
-from django.core.mail import send_mail
+from django.utils import timezone
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
 
@@ -23,6 +23,7 @@ from apps.users.serializers import (
     LoginResponseSerializer,
     LogoutSerializer,
 )
+from core.email import send_email
 
 
 @extend_schema(
@@ -102,6 +103,19 @@ class ChangePasswordView(generics.GenericAPIView):
         for token in OutstandingToken.objects.filter(user=user):
             BlacklistedToken.objects.get_or_create(token=token)
 
+        uid = urlsafe_base64_encode(force_bytes(user.pk))
+        reset_token = PasswordResetTokenGenerator().make_token(user)
+        send_email(
+            subject="Your password has been changed — Lead Edge Exam Centre",
+            to_email=user.email,
+            template_name="password_changed",
+            context={
+                "first_name": user.first_name,
+                "changed_at": timezone.now().strftime("%d %B %Y at %H:%M UTC"),
+                "reset_url": f"{settings.FRONTEND_URL}/reset-password?uid={uid}&token={reset_token}",
+            },
+        )
+
         return Response(
             {"success": True, "message": "Password changed successfully."},
             status=status.HTTP_200_OK,
@@ -129,12 +143,14 @@ class ForgotPasswordView(generics.GenericAPIView):
             token = PasswordResetTokenGenerator().make_token(user)
             reset_url = f"{settings.FRONTEND_URL}/reset-password?uid={uid}&token={token}"
 
-            send_mail(
-                subject="Reset your password",
-                message=f"Hi {user.first_name},\n\nClick the link below to reset your password:\n{reset_url}",
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[user.email],
-                fail_silently=False,
+            send_email(
+                subject="Reset your password — Lead Edge Exam Centre",
+                to_email=user.email,
+                template_name="password_reset",
+                context={
+                    "first_name": user.first_name,
+                    "reset_url": reset_url,
+                },
             )
 
         return Response(
