@@ -5,7 +5,7 @@ services:
     volumes:
       - /var/www/examcenterleadedge/postgres_data:/var/lib/postgresql/data
     env_file:
-      - .env.prod
+      - /etc/examcenterleadedge/.env
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -31,7 +31,7 @@ services:
     build: .
     restart: unless-stopped
     env_file:
-      - .env.prod
+      - /etc/examcenterleadedge/.env
     ports:
       - "127.0.0.1:8020:8020"
     volumes:
@@ -47,7 +47,7 @@ services:
     build: .
     restart: unless-stopped
     env_file:
-      - .env.prod
+      - /etc/examcenterleadedge/.env
     volumes:
       - /var/www/examcenterleadedge/media:/app/media
     depends_on:
@@ -61,7 +61,7 @@ services:
     build: .
     restart: unless-stopped
     env_file:
-      - .env.prod
+      - /etc/examcenterleadedge/.env
     depends_on:
       db:
         condition: service_healthy

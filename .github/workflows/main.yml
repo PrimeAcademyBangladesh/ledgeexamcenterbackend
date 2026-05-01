@@ -34,6 +34,7 @@ jobs:
           target: "/var/www/examcenterleadedge"
           strip_components: 1
           rm: false
+          exclude: ".env,.env.prod,.env.dev,.env.example"
 
       - name: Deploy containers
         uses: appleboy/ssh-action@v0.1.10
