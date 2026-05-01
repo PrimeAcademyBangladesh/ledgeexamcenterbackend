@@ -5,6 +5,7 @@ from django.utils.http import urlsafe_base64_decode
 
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from django.contrib.auth import authenticate
 
 from .models import User
 
@@ -26,15 +27,39 @@ class UserSerializer(serializers.Serializer):
 # =========================
 
 class LoginSerializer(TokenObtainPairSerializer):
+    username_field = "email"
+
     def validate(self, attrs):
-        data = super().validate(attrs)
+        email = attrs.get("email")
+        password = attrs.get("password")
+
+        user = authenticate(
+            request=self.context.get("request"),
+            username=email,
+            password=password,
+        )
+
+        if not user:
+            raise serializers.ValidationError(
+                {"detail": "Invalid email or password"}
+            )
+
+        if not user.is_active:
+            raise serializers.ValidationError(
+                {"detail": "User account is disabled"}
+            )
+
+        data = super().validate({
+            "username": email,
+            "password": password
+        })
 
         data["user"] = {
-            "id": str(self.user.id),
-            "email": self.user.email,
-            "firstName": self.user.first_name,
-            "lastName": self.user.last_name,
-            "role": self.user.role,
+            "id": str(user.id),
+            "email": user.email,
+            "firstName": user.first_name,
+            "lastName": user.last_name,
+            "role": user.role,
         }
 
         return data
