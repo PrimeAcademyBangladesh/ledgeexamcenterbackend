@@ -3,7 +3,7 @@ import secrets
 
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.core.validators import RegexValidator
-from django.db import models
+from django.db import IntegrityError, models
 from django.utils import timezone
 
 
@@ -44,13 +44,13 @@ class UserManager(BaseUserManager):
 class User(AbstractBaseUser, PermissionsMixin):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     email = models.EmailField(unique=True, db_index=True)
-    first_name = models.CharField(max_length=80)
-    last_name = models.CharField(max_length=80)
+    first_name = models.CharField(max_length=80, db_index=True)
+    last_name = models.CharField(max_length=80, db_index=True)
     role = models.CharField(max_length=20, choices=Role.choices, default=Role.LEARNER)
 
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
-    date_joined = models.DateTimeField(default=timezone.now)
+    date_joined = models.DateTimeField(default=timezone.now, db_index=True)
 
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = ["first_name", "last_name"]
@@ -60,6 +60,11 @@ class User(AbstractBaseUser, PermissionsMixin):
     class Meta:
         db_table = "users"
         indexes = [models.Index(fields=["role"])]
+
+    def save(self, *args, **kwargs):
+        if self.email:
+            self.email = self.__class__.objects.normalize_email(self.email).lower()
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.email} ({self.role})"
@@ -85,9 +90,7 @@ def generate_uln() -> str:
         check = 10 - (total % 11)
         if check in (10, 11):
             continue
-        uln = "".join(map(str, base)) + str(check)
-        if not LearnerProfile.objects.filter(uln=uln).exists():
-            return uln
+        return "".join(map(str, base)) + str(check)
 
 
 def generate_learner_id() -> str:
@@ -137,7 +140,16 @@ class LearnerProfile(models.Model):
         if not self.learner_id:
             self.learner_id = generate_learner_id()
         if not self.uln:
-            self.uln = generate_uln()
+            for _ in range(5):
+                try:
+                    self.uln = generate_uln()
+                    super().save(*args, **kwargs)
+                    return
+                except IntegrityError as exc:
+                    if "uln" not in str(exc).lower():
+                        raise
+                    self.uln = None
+            raise Exception("ULN generation failed")
         super().save(*args, **kwargs)
 
     def __str__(self):
