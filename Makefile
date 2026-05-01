@@ -1,4 +1,4 @@
-.PHONY: up build start down restart logs shell migrate makemigrations \
+.PHONY: up build start down restart logs logs-api logs-worker logs-beat shell migrate makemigrations \
         superuser setup-admin collectstatic check dbshell psql \
         test test-qualification test-pytest coverage lint bash clean resetdb rebuild
 
@@ -26,6 +26,15 @@ rebuild:
 
 logs:
 	docker compose logs -f
+
+logs-api:
+	docker compose logs -f api
+
+logs-worker:
+	docker compose logs -f celery_worker
+
+logs-beat:
+	docker compose logs -f celery_beat
 
 test:
 	docker compose exec -T api python manage.py test
