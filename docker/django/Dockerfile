@@ -16,8 +16,8 @@ RUN apt-get update \
         curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user
-RUN addgroup --system app && adduser --system --ingroup app app
+# Create non-root user with explicit UID/GID 1000
+RUN groupadd -g 1000 app && useradd -u 1000 -g app -s /bin/sh -m app
 
 # Install Python dependencies
 COPY requirements*.txt ./
