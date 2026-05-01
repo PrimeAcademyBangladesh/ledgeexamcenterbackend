@@ -10,3 +10,4 @@ Pillow==11.1.0
 django-filter==24.3
 markdown==3.10.2
 drf-spectacular==0.29.0
+django-versatileimagefield==3.1

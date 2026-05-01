@@ -1,3 +1,171 @@
+import uuid
+import secrets
+
+from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
+from django.core.validators import RegexValidator
 from django.db import models
+from django.utils import timezone
 
 
+class Role(models.TextChoices):
+    ADMIN = "admin", "Admin"
+    INVIGILATOR = "invigilator", "Invigilator"
+    LEARNER = "learner", "Learner"
+
+
+class UserManager(BaseUserManager):
+    use_in_migrations = True
+
+    def _create_user(self, email, password, **extra):
+        if not email:
+            raise ValueError("Email is required")
+        email = self.normalize_email(email).lower()
+        user = self.model(email=email, **extra)
+        user.set_password(password)
+        user.save(using=self._db)
+        return user
+
+    def create_user(self, email, password=None, **extra):
+        extra.setdefault("is_staff", False)
+        extra.setdefault("is_superuser", False)
+        return self._create_user(email, password, **extra)
+
+    def create_superuser(self, email, password, **extra):
+        extra.setdefault("is_staff", True)
+        extra.setdefault("is_superuser", True)
+        extra.setdefault("role", Role.ADMIN)
+        if extra.get("is_staff") is not True:
+            raise ValueError("Superuser must have is_staff=True.")
+        if extra.get("is_superuser") is not True:
+            raise ValueError("Superuser must have is_superuser=True.")
+        return self._create_user(email, password, **extra)
+
+
+class User(AbstractBaseUser, PermissionsMixin):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    email = models.EmailField(unique=True, db_index=True)
+    first_name = models.CharField(max_length=80)
+    last_name = models.CharField(max_length=80)
+    role = models.CharField(max_length=20, choices=Role.choices, default=Role.LEARNER)
+
+    is_active = models.BooleanField(default=True)
+    is_staff = models.BooleanField(default=False)
+    date_joined = models.DateTimeField(default=timezone.now)
+
+    USERNAME_FIELD = "email"
+    REQUIRED_FIELDS = ["first_name", "last_name"]
+
+    objects = UserManager()
+
+    class Meta:
+        db_table = "users"
+        indexes = [models.Index(fields=["role"])]
+
+    def __str__(self):
+        return f"{self.email} ({self.role})"
+
+    @property
+    def full_name(self):
+        return f"{self.first_name} {self.last_name}".strip()
+
+
+# ── ID Generators ────────────────────────────────────────────
+
+uln_validator = RegexValidator(r"^\d{10}$", "ULN must be exactly 10 digits.")
+
+
+def generate_uln() -> str:
+    """UK ULN: 10 digits with Modulo-11 check digit."""
+    while True:
+        base = [secrets.randbelow(10) for _ in range(9)]
+        if base[0] == 0:
+            continue
+        weights = [10, 9, 8, 7, 6, 5, 4, 3, 2]
+        total = sum(d * w for d, w in zip(base, weights))
+        check = 10 - (total % 11)
+        if check in (10, 11):
+            continue
+        uln = "".join(map(str, base)) + str(check)
+        if not LearnerProfile.objects.filter(uln=uln).exists():
+            return uln
+
+
+def generate_learner_id() -> str:
+    """LE-YY-XXXXXX, sequential per year."""
+    year = timezone.now().strftime("%y")
+    prefix = f"LE-{year}-"
+    last = LearnerProfile.objects.filter(learner_id__startswith=prefix).order_by("-learner_id").first()
+    next_num = (int(last.learner_id.split("-")[-1]) + 1) if last else 1
+    return f"{prefix}{next_num:06d}"
+
+
+def generate_staff_id(role: str) -> str:
+    """ADM-YY-XXXX or INV-YY-XXXX."""
+    code = {Role.ADMIN: "ADM", Role.INVIGILATOR: "INV"}[role]
+    year = timezone.now().strftime("%y")
+    prefix = f"{code}-{year}-"
+    last = StaffProfile.objects.filter(staff_id__startswith=prefix).order_by("-staff_id").first()
+    next_num = (int(last.staff_id.split("-")[-1]) + 1) if last else 1
+    return f"{prefix}{next_num:04d}"
+
+
+# ── Learner Profile ──────────────────────────────────────────
+
+class LearnerProfile(models.Model):
+    user = models.OneToOneField(
+        User, on_delete=models.CASCADE, related_name="learner_profile",
+        limit_choices_to={"role": Role.LEARNER},
+    )
+    learner_id = models.CharField(max_length=20, unique=True, editable=False, db_index=True)
+    uln = models.CharField(max_length=10, unique=True, validators=[uln_validator], db_index=True)
+
+    date_of_birth = models.DateField(null=True, blank=True)
+    phone = models.CharField(max_length=20, blank=True)
+    postcode = models.CharField(max_length=12, blank=True)
+
+    photo = models.ImageField(upload_to="learners/photos/", null=True, blank=True)
+    id_document = models.FileField(upload_to="learners/id_docs/", null=True, blank=True)
+    id_verified = models.BooleanField(default=False)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "learner_profiles"
+
+    def save(self, *args, **kwargs):
+        if not self.learner_id:
+            self.learner_id = generate_learner_id()
+        if not self.uln:
+            self.uln = generate_uln()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.learner_id} — {self.user.full_name}"
+
+
+# ── Staff Profile ────────────────────────────────────────────
+
+class StaffProfile(models.Model):
+    user = models.OneToOneField(
+        User, on_delete=models.CASCADE, related_name="staff_profile",
+        limit_choices_to={"role__in": [Role.ADMIN, Role.INVIGILATOR]},
+    )
+    staff_id = models.CharField(max_length=20, unique=True, editable=False, db_index=True)
+    job_title = models.CharField(max_length=120, blank=True)
+    phone = models.CharField(max_length=20, blank=True)
+    photo = models.ImageField(upload_to="staff/photos/", null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "staff_profiles"
+
+    def save(self, *args, **kwargs):
+        if not self.staff_id:
+            self.staff_id = generate_staff_id(self.user.role)
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.staff_id} — {self.user.full_name} ({self.user.role})"
