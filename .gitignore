@@ -24,6 +24,8 @@ staticfiles/
 
 # Environment variables (Sensitive Info)
 .env
+.env.dev
+.env.prod
 .flaskenv
 
 # IDE Settings (Optional but recommended)

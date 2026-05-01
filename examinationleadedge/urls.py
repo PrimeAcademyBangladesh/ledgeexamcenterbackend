@@ -1,11 +1,14 @@
 from django.contrib import admin
 from django.urls import path, include
+from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView, SpectacularRedocView
 
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
+    path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
+    path('api/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
     path('users/', include('apps.users.urls')),
-    path('sessions/', include('apps.sessions.urls')),
     path('adjustments/', include('apps.adjustments.urls')),
     path('invigilators/', include('apps.invigilators.urls')),
     path('learner/', include('apps.learners.urls')),
@@ -16,4 +19,5 @@ urlpatterns = [
     path('qualifications/', include('apps.qualifications.urls')),
     path('exams/', include('apps.exams.urls')),
     path('integrity/', include('apps.integrity.urls')),
+    path('examsession/', include('apps.examsession.urls')),
 ]

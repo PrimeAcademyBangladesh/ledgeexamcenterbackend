@@ -44,8 +44,6 @@ jobs:
           port: ${{ secrets.LEADEDGE_SSH_PORT }}
           script: |
             cd /var/www/examcenterleadedge
-
-            echo "Starting containers..."
             make start
-
-            echo "Deployment completed successfully"
+            sudo systemctl reload nginx
+            echo "DEV deployment completed"

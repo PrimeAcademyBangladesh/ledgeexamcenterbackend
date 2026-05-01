@@ -1,13 +1,13 @@
-name: Prime College UK LIVE CI/CD
+name: Leadedge PROD CI/CD
 
 on:
   push:
     branches:
-      - main-branch
+      - main
 
 jobs:
   deploy:
-    name: Build and Deploy LIVE
+    name: Build and Deploy PROD
     runs-on: ubuntu-latest
 
     steps:
@@ -16,45 +16,34 @@ jobs:
 
       - name: Verify SSH key
         run: |
-          if [ -z "${{ secrets.PRIME_SSH_PRIVATE_KEY }}" ]; then
+          if [ -z "${{ secrets.LEADEDGE_SSH_PRIVATE_KEY }}" ]; then
             echo "SSH key missing"
             exit 1
           else
             echo "SSH key detected"
           fi
 
-      - name: Upload code to LIVE server
+      - name: Upload code to PROD server
         uses: appleboy/scp-action@v0.1.7
         with:
-          host: ${{ secrets.DEV_SSH_HOST }}
-          username: ${{ secrets.DEV_SSH_USER }}
-          key: ${{ secrets.PRIME_SSH_PRIVATE_KEY }}
-          port: ${{ secrets.DEV_SSH_PORT }}
+          host: ${{ secrets.LEADEDGE_SSH_HOST }}
+          username: ${{ secrets.LEADEDGE_SSH_USER }}
+          key: ${{ secrets.LEADEDGE_SSH_PRIVATE_KEY }}
+          port: ${{ secrets.LEADEDGE_SSH_PORT }}
           source: "./"
-          target: "/var/www/primeplatformlive"
+          target: "/var/www/examcenterleadedge"
           strip_components: 1
           rm: false
 
       - name: Deploy containers
         uses: appleboy/ssh-action@v0.1.10
         with:
-          host: ${{ secrets.DEV_SSH_HOST }}
-          username: ${{ secrets.DEV_SSH_USER }}
-          key: ${{ secrets.PRIME_SSH_PRIVATE_KEY }}
-          port: ${{ secrets.DEV_SSH_PORT }}
+          host: ${{ secrets.LEADEDGE_SSH_HOST }}
+          username: ${{ secrets.LEADEDGE_SSH_USER }}
+          key: ${{ secrets.LEADEDGE_SSH_PRIVATE_KEY }}
+          port: ${{ secrets.LEADEDGE_SSH_PORT }}
           script: |
-            cd /var/www/primeplatformlive
-
-            echo "Building and starting containers..."
+            cd /var/www/examcenterleadedge
             make start
-
-            echo "Running migrations..."
-            make migrate
-
-            echo "Ensuring superuser exists..."
-            docker compose exec -T api python manage.py setup_admin
-
-            echo "Collecting static files..."
-            make collectstatic
-
-            echo "Deployment completed successfully"
+            sudo systemctl reload nginx
+            echo "PROD deployment completed"
