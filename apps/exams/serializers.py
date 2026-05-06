@@ -6,6 +6,7 @@ either by djangorestframework-camel-case OR by the React Axios interceptor.
 Do not enable both at the same time.
 """
 
+from drf_spectacular.utils import extend_schema_field, inline_serializer
 from rest_framework import serializers
 from django.utils import timezone
 
@@ -19,6 +20,16 @@ from .models import (
 # ---------------------------------------------------------------------------
 # ExamConfig
 # ---------------------------------------------------------------------------
+@extend_schema_field(
+    inline_serializer(
+        name="GradeBoundaries",
+        fields={
+            "distinction": serializers.IntegerField(),
+            "merit": serializers.IntegerField(),
+            "pass": serializers.IntegerField(),
+        },
+    )
+)
 class GradeBoundariesField(serializers.Field):
     """Flatten/expand grade_distinction|grade_merit|grade_pass <-> {distinction,merit,pass}."""
     def to_representation(self, obj):
@@ -101,10 +112,12 @@ class ExamSessionSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields  # writes go through dedicated endpoints/serializers
 
-    def get_learner_name(self, obj):
+    @extend_schema_field(serializers.CharField())
+    def get_learner_name(self, obj) -> str:
         return f"{obj.learner.first_name} {obj.learner.last_name}".strip()
 
-    def get_invigilator_name(self, obj):
+    @extend_schema_field(serializers.CharField())
+    def get_invigilator_name(self, obj) -> str:
         return f"{obj.invigilator.first_name} {obj.invigilator.last_name}".strip()
 
 
@@ -229,7 +242,8 @@ class ExamResultSerializer(serializers.ModelSerializer):
             "attempt_number",
         ]
 
-    def get_learner_name(self, obj):
+    @extend_schema_field(serializers.CharField())
+    def get_learner_name(self, obj) -> str:
         return f"{obj.learner.first_name} {obj.learner.last_name}".strip()
 
 
@@ -257,7 +271,8 @@ class RetakeRequestSerializer(serializers.ModelSerializer):
             "new_session_id",
         ]
 
-    def get_learner_name(self, obj):
+    @extend_schema_field(serializers.CharField())
+    def get_learner_name(self, obj) -> str:
         return f"{obj.learner.first_name} {obj.learner.last_name}".strip()
 
 

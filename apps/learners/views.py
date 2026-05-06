@@ -217,6 +217,8 @@ class MyEnrollmentsView(generics.ListAPIView):
     permission_classes = [IsSelfLearner]
 
     def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False):
+            return Enrollment.objects.none()
         return Enrollment.objects.filter(
             learner__user=self.request.user,
         ).select_related("qualification").order_by("-enrolled_at")

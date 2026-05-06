@@ -156,9 +156,10 @@ REST_FRAMEWORK = {
 SPECTACULAR_SETTINGS = {
     "TITLE": "The Prime College UK Backend API",
     "DESCRIPTION": (
-        "Official REST API for The Prime College UK services. "
-        "Provides endpoints for authentication, user management, course operations, "
-        "and other backend services."
+        "Official REST API for the exam platform. "
+        "Endpoints are grouped by operational domain so frontend teams can "
+        "navigate catalogue, question bank, exam delivery, learner, and staff "
+        "workflows separately."
     ),
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
@@ -180,6 +181,61 @@ SPECTACULAR_SETTINGS = {
             }
         },
     },
+    "ENUM_NAME_OVERRIDES": {
+        "QuestionType": ["single", "multiple"],
+        "EnrollmentStatus": ["active", "withdrawn", "completed", "suspended"],
+        "BankHealthStatus": ["healthy", "warning", "critical"],
+    },
+    "TAGS": [
+        {
+            "name": "Qualification",
+            "description": "Qualification catalogue CRUD and admin qualification detail endpoints.",
+        },
+        {
+            "name": "Qualification Sector",
+            "description": "Sector lookup and sector administration endpoints used by qualification-related forms.",
+        },
+        {
+            "name": "Qualification Level",
+            "description": "Read-only level lookup endpoints used by qualification dropdowns.",
+        },
+        {
+            "name": "Qualification Unit",
+            "description": "Qualification unit endpoints used by admin qualification management and question-editor unit pickers.",
+        },
+        {
+            "name": "Qualification Enrollment",
+            "description": "Enrollment CRUD and learner enrollment views.",
+        },
+        {
+            "name": "Question",
+            "description": "Admin question-bank CRUD, filtering, and bulk import endpoints.",
+        },
+        {
+            "name": "Exam Config",
+            "description": "Exam blueprint configuration endpoints used by admin exam setup screens.",
+        },
+        {
+            "name": "Exam Session",
+            "description": "Session scheduling and invigilation workflow endpoints.",
+        },
+        {
+            "name": "Exam Runtime",
+            "description": "Learner runtime endpoints for mock start, PIN validation, autosave, and submission.",
+        },
+        {
+            "name": "Exam Result",
+            "description": "Read-only result endpoints used by admin, invigilator, and learner result views.",
+        },
+        {
+            "name": "Exam Integrity",
+            "description": "Exam integrity and incident-reporting endpoints.",
+        },
+        {
+            "name": "Exam Retake",
+            "description": "Retake request and resit-session endpoints.",
+        },
+    ],
 }
 
 SIMPLE_JWT = {

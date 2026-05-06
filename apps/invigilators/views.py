@@ -26,6 +26,7 @@ from django.contrib.auth import get_user_model
 from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.utils import extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -149,8 +150,25 @@ class InvigilatorViewSet(viewsets.ModelViewSet):
 # Lookup by provider code (used by Admin "Assign invigilator" picker)
 # ---------------------------------------------------------------------------
 class InvigilatorByProviderCodeView(APIView):
-    permission_classes = [IsAuthenticated, IsAdminOrInvigilatorReadOnly]
+    """
+    Lookup endpoint for provider-code based invigilator assignment.
 
+    Why:
+      - Admin scheduling and assignment flows often have a provider code before
+        they have the invigilator UUID.
+    Where:
+      - Frontend "Assign invigilator" pickers can resolve a typed/scanned
+        provider code into the canonical invigilator record before session
+        creation.
+    """
+    permission_classes = [IsAuthenticated, IsAdminOrInvigilatorReadOnly]
+    serializer_class = InvigilatorSerializer
+
+    @extend_schema(
+        tags=["Invigilator"],
+        summary="Find an invigilator by provider code",
+        responses={200: InvigilatorSerializer},
+    )
     def get(self, request, code: str):
         user = get_object_or_404(
             User.objects.select_related("staff_profile"),

@@ -37,13 +37,16 @@ from datetime import datetime, timezone as dt_tz, timedelta
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.db import transaction
+from drf_spectacular.utils import extend_schema, extend_schema_view, inline_serializer
 from rest_framework import viewsets, status, mixins
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
+from rest_framework import serializers as drf_serializers
 from rest_framework.views import APIView
 
 from apps.questions.models import Question
 from apps.users.models import User
+from core.schemas import DEFAULT_ERROR_RESPONSES, envelope_action, envelope_detail, envelope_list
 from .models import (
     ExamConfig, ExamSession, ExamResult,
     IntegrityViolation, RetakeRequest,
@@ -68,6 +71,14 @@ from .services import (
     create_scheduled_session, select_questions_for_learner,
     score_submission, is_resit_eligible,
 )
+
+
+TAG_EXAM_CONFIG = "Exam Config"
+TAG_EXAM_SESSION = "Exam Session"
+TAG_EXAM_RUNTIME = "Exam Runtime"
+TAG_EXAM_RESULT = "Exam Result"
+TAG_EXAM_INTEGRITY = "Exam Integrity"
+TAG_EXAM_RETAKE = "Exam Retake"
 
 
 # ---------------------------------------------------------------------------
@@ -100,12 +111,55 @@ def _retake_qs():
 # ---------------------------------------------------------------------------
 # ExamConfig
 # ---------------------------------------------------------------------------
+@extend_schema_view(
+    list=extend_schema(
+        tags=[TAG_EXAM_CONFIG],
+        summary="List exam configurations",
+        responses={200: envelope_list(ExamConfigSerializer, message_example="Exam configurations retrieved successfully."), **DEFAULT_ERROR_RESPONSES},
+    ),
+    retrieve=extend_schema(
+        tags=[TAG_EXAM_CONFIG],
+        summary="Retrieve an exam configuration",
+        responses={200: envelope_detail(ExamConfigSerializer, message_example="Exam configuration retrieved successfully."), **DEFAULT_ERROR_RESPONSES},
+    ),
+    create=extend_schema(
+        tags=[TAG_EXAM_CONFIG],
+        summary="Create an exam configuration",
+        request=ExamConfigSerializer,
+        responses={201: envelope_detail(ExamConfigSerializer, message_example="Exam configuration created successfully."), **DEFAULT_ERROR_RESPONSES},
+    ),
+    update=extend_schema(
+        tags=[TAG_EXAM_CONFIG],
+        summary="Replace an exam configuration",
+        request=ExamConfigSerializer,
+        responses={200: envelope_detail(ExamConfigSerializer, message_example="Exam configuration updated successfully."), **DEFAULT_ERROR_RESPONSES},
+    ),
+    partial_update=extend_schema(
+        tags=[TAG_EXAM_CONFIG],
+        summary="Partially update an exam configuration",
+        request=ExamConfigSerializer,
+        responses={200: envelope_detail(ExamConfigSerializer, message_example="Exam configuration updated successfully."), **DEFAULT_ERROR_RESPONSES},
+    ),
+)
 class ExamConfigViewSet(viewsets.ModelViewSet):
+    """
+    Admin-facing exam blueprint CRUD.
+
+    Frontend usage:
+      - Admin exam setup screens use this endpoint to create and maintain the
+        reusable exam configuration attached to a qualification.
+      - Learner exam runtime does not call this endpoint directly.
+    """
     queryset = ExamConfig.objects.select_related("qualification")
     serializer_class = ExamConfigSerializer
     permission_classes = [IsAdminOrReadOnlyForStaff]
 
 
+@extend_schema(
+    tags=[TAG_EXAM_RUNTIME],
+    summary="List published mock exams",
+    responses={200: envelope_detail(ExamConfigSerializer(many=True), message_example="Mock exams retrieved successfully."), **DEFAULT_ERROR_RESPONSES},
+)
 class MockExamListView(APIView):
     """Learner-visible published mock exams (no PIN required)."""
     permission_classes = [IsAuthenticated]
@@ -121,6 +175,11 @@ class MockExamListView(APIView):
         )
 
 
+@extend_schema(
+    tags=[TAG_EXAM_RUNTIME],
+    summary="Start a mock exam",
+    responses={200: envelope_detail(ValidatePinResponseSerializer, message_example="Mock exam started successfully."), **DEFAULT_ERROR_RESPONSES},
+)
 class MockExamStartView(APIView):
     """Start a mock exam — generates an unmarked, throwaway question set."""
     permission_classes = [IsLearner]
@@ -148,7 +207,83 @@ class MockExamStartView(APIView):
 # ---------------------------------------------------------------------------
 # ExamSession (CRUD + workflow actions)
 # ---------------------------------------------------------------------------
+@extend_schema_view(
+    list=extend_schema(
+        tags=[TAG_EXAM_SESSION],
+        summary="List exam sessions",
+        responses={200: envelope_list(ExamSessionSerializer, message_example="Exam sessions retrieved successfully."), **DEFAULT_ERROR_RESPONSES},
+    ),
+    retrieve=extend_schema(
+        tags=[TAG_EXAM_SESSION],
+        summary="Retrieve an exam session",
+        responses={200: envelope_detail(ExamSessionSerializer, message_example="Exam session retrieved successfully."), **DEFAULT_ERROR_RESPONSES},
+    ),
+    create=extend_schema(
+        tags=[TAG_EXAM_SESSION],
+        summary="Create a scheduled exam session",
+        request=CreateExamSessionSerializer,
+        responses={201: envelope_detail(ExamSessionSerializer, message_example="Exam session created successfully."), **DEFAULT_ERROR_RESPONSES},
+    ),
+    update_pin=extend_schema(
+        tags=[TAG_EXAM_SESSION],
+        summary="Update a session PIN",
+        request=UpdateSessionPinSerializer,
+        responses={200: envelope_detail(ExamSessionSerializer, message_example="Session PIN updated successfully."), **DEFAULT_ERROR_RESPONSES},
+    ),
+    verify_id=extend_schema(
+        tags=[TAG_EXAM_SESSION],
+        summary="Mark session ID verification",
+        request=inline_serializer(
+            name="VerifySessionIdRequest",
+            fields={"id_verified": drf_serializers.BooleanField(required=False, default=True)},
+        ),
+        responses={200: envelope_detail(ExamSessionSerializer, message_example="Session ID verification updated successfully."), **DEFAULT_ERROR_RESPONSES},
+    ),
+    unlock=extend_schema(
+        tags=[TAG_EXAM_SESSION],
+        summary="Unlock a scheduled session",
+        responses={200: envelope_detail(ExamSessionSerializer, message_example="Session unlocked successfully."), **DEFAULT_ERROR_RESPONSES},
+    ),
+    complete=extend_schema(
+        tags=[TAG_EXAM_SESSION],
+        summary="Complete a session",
+        request=inline_serializer(
+            name="CompleteSessionRequest",
+            fields={
+                "completed_successfully": drf_serializers.BooleanField(required=False, default=True),
+                "incident_notes": drf_serializers.CharField(required=False, allow_blank=True),
+            },
+        ),
+        responses={200: envelope_detail(ExamSessionSerializer, message_example="Session completed successfully."), **DEFAULT_ERROR_RESPONSES},
+    ),
+    save_draft=extend_schema(
+        tags=[TAG_EXAM_RUNTIME],
+        summary="Save an in-progress exam draft",
+        request=SaveExamDraftSerializer,
+        responses={200: envelope_action(
+            {
+                "sessionId": drf_serializers.UUIDField(),
+                "answers": drf_serializers.ListField(child=drf_serializers.DictField()),
+                "currentQuestionIndex": drf_serializers.IntegerField(),
+                "flaggedQuestionIndexes": drf_serializers.ListField(child=drf_serializers.IntegerField()),
+                "remainingSeconds": drf_serializers.IntegerField(),
+                "updatedAt": drf_serializers.DateTimeField(),
+            },
+            name="ExamDraftSaved",
+            message_example="Draft saved successfully.",
+        ), **DEFAULT_ERROR_RESPONSES},
+    ),
+)
 class ExamSessionViewSet(viewsets.ModelViewSet):
+    """
+    Session scheduling and invigilation workflow endpoints.
+
+    Frontend usage:
+      - Admin scheduling screens create sessions here.
+      - Invigilator consoles use the session actions to verify identity,
+        unlock, update PIN, and complete the session.
+      - Learner runtime uses the draft action only for autosave.
+    """
     queryset = ExamSession.objects.select_related(
         "exam_config", "exam_config__qualification", "learner", "invigilator"
     )
@@ -343,6 +478,12 @@ class ExamSessionViewSet(viewsets.ModelViewSet):
 # ---------------------------------------------------------------------------
 # Validate PIN (gateway into exam runtime)
 # ---------------------------------------------------------------------------
+@extend_schema(
+    tags=[TAG_EXAM_RUNTIME],
+    summary="Validate learner PIN and open the frozen exam session",
+    request=ValidatePinRequestSerializer,
+    responses={200: envelope_detail(ValidatePinResponseSerializer, message_example="PIN validated successfully."), **DEFAULT_ERROR_RESPONSES},
+)
 class ValidatePinView(APIView):
     permission_classes = [IsLearner]
 
@@ -435,6 +576,12 @@ class ValidatePinView(APIView):
 # ---------------------------------------------------------------------------
 # Submit Exam
 # ---------------------------------------------------------------------------
+@extend_schema(
+    tags=[TAG_EXAM_RUNTIME],
+    summary="Submit an exam session",
+    request=SubmitExamSerializer,
+    responses={201: envelope_detail(ExamResultSerializer, message_example="Exam submitted successfully."), **DEFAULT_ERROR_RESPONSES},
+)
 class SubmitExamView(APIView):
     permission_classes = [IsLearner]
 
@@ -514,6 +661,16 @@ class SubmitExamView(APIView):
 # ---------------------------------------------------------------------------
 # Integrity violations
 # ---------------------------------------------------------------------------
+@extend_schema(
+    tags=[TAG_EXAM_INTEGRITY],
+    summary="Report an integrity violation",
+    request=ReportViolationSerializer,
+    responses={200: envelope_action(
+        {"strikeCount": drf_serializers.IntegerField()},
+        name="ViolationReported",
+        message_example="Violation reported successfully.",
+    ), **DEFAULT_ERROR_RESPONSES},
+)
 class ReportViolationView(APIView):
     permission_classes = [IsLearner]
 
@@ -549,7 +706,20 @@ class ReportViolationView(APIView):
 # ---------------------------------------------------------------------------
 # Results
 # ---------------------------------------------------------------------------
+@extend_schema_view(
+    list=extend_schema(
+        tags=[TAG_EXAM_RESULT],
+        summary="List exam results",
+        responses={200: envelope_list(ExamResultSerializer, message_example="Exam results retrieved successfully."), **DEFAULT_ERROR_RESPONSES},
+    ),
+    retrieve=extend_schema(
+        tags=[TAG_EXAM_RESULT],
+        summary="Retrieve an exam result",
+        responses={200: envelope_detail(ExamResultSerializer, message_example="Exam result retrieved successfully."), **DEFAULT_ERROR_RESPONSES},
+    ),
+)
 class ExamResultViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+    """Read-only result endpoints for admin, invigilator, and learner result views."""
     queryset = ExamResult.objects.select_related(
         "learner", "exam_config", "qualification", "session"
     ).prefetch_related("session__violations")
@@ -573,7 +743,15 @@ class ExamResultViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewse
 # ---------------------------------------------------------------------------
 # Retakes / Resits
 # ---------------------------------------------------------------------------
+@extend_schema_view(
+    list=extend_schema(
+        tags=[TAG_EXAM_RETAKE],
+        summary="List retake requests",
+        responses={200: envelope_list(RetakeRequestSerializer, message_example="Retake requests retrieved successfully."), **DEFAULT_ERROR_RESPONSES},
+    ),
+)
 class RetakeRequestViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
+    """Read-only retake request listing for learner and admin retake queues."""
     queryset = RetakeRequest.objects.select_related(
         "learner", "exam_config", "exam_config__qualification", "previous_result"
     )
@@ -592,6 +770,12 @@ class RetakeRequestViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         return qs
 
 
+@extend_schema(
+    tags=[TAG_EXAM_RETAKE],
+    summary="Create a retake request",
+    request=CreateRetakeRequestSerializer,
+    responses={201: envelope_detail(RetakeRequestSerializer, message_example="Retake request submitted successfully."), **DEFAULT_ERROR_RESPONSES},
+)
 class RequestRetakeView(APIView):
     permission_classes = [IsLearner]
     def post(self, request):
@@ -629,6 +813,13 @@ class RequestRetakeView(APIView):
 
 class ApproveRetakeView(APIView):
     permission_classes = [IsAdmin]
+    serializer_class = RetakeRequestSerializer
+
+    @extend_schema(
+        tags=[TAG_EXAM_RETAKE],
+        summary="Approve a retake request",
+        responses={200: envelope_detail(RetakeRequestSerializer, message_example="Retake request approved successfully."), **DEFAULT_ERROR_RESPONSES},
+    )
     def put(self, request, retake_id):
         with transaction.atomic():
             req = get_object_or_404(
@@ -646,6 +837,12 @@ class ApproveRetakeView(APIView):
         )
 
 
+@extend_schema(
+    tags=[TAG_EXAM_RETAKE],
+    summary="Deny a retake request",
+    request=DenyRetakeSerializer,
+    responses={200: envelope_detail(RetakeRequestSerializer, message_example="Retake request denied successfully."), **DEFAULT_ERROR_RESPONSES},
+)
 class DenyRetakeView(APIView):
     permission_classes = [IsAdmin]
     def put(self, request, retake_id):
@@ -667,6 +864,12 @@ class DenyRetakeView(APIView):
         )
 
 
+@extend_schema(
+    tags=[TAG_EXAM_RETAKE],
+    summary="Create a resit session from a previous result",
+    request=CreateResitSessionSerializer,
+    responses={201: envelope_detail(ExamSessionSerializer, message_example="Resit session created successfully."), **DEFAULT_ERROR_RESPONSES},
+)
 class CreateResitSessionView(APIView):
     """
     Invigilator-driven: take a previous_result, verify resit eligibility,

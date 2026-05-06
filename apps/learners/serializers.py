@@ -10,6 +10,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import RegexValidator
 from django.db import transaction
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from apps.users.models import User, LearnerProfile, Role
@@ -60,17 +61,20 @@ class LearnerSerializer(serializers.ModelSerializer):
             "qualificationId", "qualificationName", "createdAt",
         ]
 
-    def get_photo(self, obj):
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_photo(self, obj) -> str | None:
         return obj.photo.url if obj.photo else None
 
     def _active_enrollment(self, obj):
         return obj.enrollments.filter(status=EnrollmentStatus.ACTIVE).select_related("qualification").first()
 
-    def get_qualificationId(self, obj):
+    @extend_schema_field(serializers.UUIDField(allow_null=True))
+    def get_qualificationId(self, obj) -> str | None:
         e = self._active_enrollment(obj)
         return str(e.qualification_id) if e else None
 
-    def get_qualificationName(self, obj):
+    @extend_schema_field(serializers.CharField())
+    def get_qualificationName(self, obj) -> str:
         e = self._active_enrollment(obj)
         return e.qualification.title if e else ""
 
@@ -251,7 +255,8 @@ class ReasonableAdjustmentSerializer(serializers.ModelSerializer):
             "accepted", "denied", "denialReason", "extraTimeMinutes", "createdAt",
         ]
 
-    def get_learnerName(self, obj):
+    @extend_schema_field(serializers.CharField())
+    def get_learnerName(self, obj) -> str:
         return obj.learner.user.full_name
 
     def validate(self, attrs):

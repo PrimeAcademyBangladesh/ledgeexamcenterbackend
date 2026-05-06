@@ -30,6 +30,17 @@ def _resolve_field(data_serializer):
 def _name(data_serializer, suffix: str) -> str:
     if isinstance(data_serializer, type):
         return f"{data_serializer.__name__}{suffix}"
+    serializer_class = getattr(data_serializer, "__class__", None)
+    if serializer_class is not None:
+        base = serializer_class.__name__
+        child = getattr(data_serializer, "child", None)
+        if child is not None:
+            child_class = getattr(child, "__class__", None)
+            if child_class is not None:
+                base = f"{child_class.__name__}Many"
+        if getattr(data_serializer, "many", False):
+            base = f"{base}Many"
+        return f"{base}{suffix}"
     return f"Inline{suffix}"
 
 
