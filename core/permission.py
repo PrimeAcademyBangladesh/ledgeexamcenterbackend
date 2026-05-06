@@ -78,6 +78,21 @@ class IsAuthenticatedRole(BasePermission):
 
 
 # ────────────────────────────────────────────────────────────
+#  Aliases for convenience
+# ────────────────────────────────────────────────────────────
+class IsInvigilatorOrAdmin(BasePermission):
+    """Alias for IsStaff — admin or invigilator."""
+    def has_permission(self, request, view):
+        return IsStaff().has_permission(request, view)
+
+
+class IsSessionLearnerOwner(BasePermission):
+    """Alias for IsLearnerSelfOrAdmin — learner owns the session."""
+    def has_object_permission(self, request, view, obj):
+        return IsLearnerSelfOrAdmin().has_object_permission(request, view, obj)
+
+
+# ────────────────────────────────────────────────────────────
 #  Read-only & mixed-method composites
 # ────────────────────────────────────────────────────────────
 class ReadOnly(BasePermission):

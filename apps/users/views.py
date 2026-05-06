@@ -8,10 +8,11 @@ from rest_framework import generics, status
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.token_blacklist.models import OutstandingToken, BlacklistedToken
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework_simplejwt.tokens import RefreshToken
 from drf_spectacular.utils import extend_schema
+
+from core.responses import APIResponse
 
 from apps.users.models import Role
 from apps.users.serializers import (
@@ -69,18 +70,19 @@ class MeView(generics.GenericAPIView):
                     "photo": p.photo.url if p.photo else None,
                 }
 
-        return Response({
-            "success": True,
-            "message": "User data retrieved successfully",
-            "user": {
-                "id": str(user.id),
-                "email": user.email,
-                "firstName": user.first_name,
-                "lastName": user.last_name,
-                "role": user.role,
-                "profile": profile,
+        return APIResponse.ok(
+            data={
+                "user": {
+                    "id": str(user.id),
+                    "email": user.email,
+                    "firstName": user.first_name,
+                    "lastName": user.last_name,
+                    "role": user.role,
+                    "profile": profile,
+                },
             },
-        })
+            message="User data retrieved successfully",
+        )
 
 
 @extend_schema(
@@ -116,8 +118,8 @@ class ChangePasswordView(generics.GenericAPIView):
             },
         )
 
-        return Response(
-            {"success": True, "message": "Password changed successfully."},
+        return APIResponse.ok(
+            message="Password changed successfully.",
             status=status.HTTP_200_OK,
         )
 
@@ -153,11 +155,8 @@ class ForgotPasswordView(generics.GenericAPIView):
                 },
             )
 
-        return Response(
-            {
-                "success": True,
-                "message": "If this email is registered, a reset link has been sent.",
-            },
+        return APIResponse.ok(
+            message="If this email is registered, a reset link has been sent.",
             status=status.HTTP_200_OK,
         )
 
@@ -182,8 +181,8 @@ class ResetPasswordView(generics.GenericAPIView):
         for token in OutstandingToken.objects.filter(user=user):
             BlacklistedToken.objects.get_or_create(token=token)
 
-        return Response(
-            {"success": True, "message": "Password has been reset successfully."},
+        return APIResponse.ok(
+            message="Password has been reset successfully.",
             status=status.HTTP_200_OK,
         )
 
@@ -205,13 +204,13 @@ class LogoutView(generics.GenericAPIView):
             token = RefreshToken(serializer.validated_data["refresh"])
             token.blacklist()
 
-            return Response(
-                {"success": True, "message": "Logged out successfully."},
+            return APIResponse.ok(
+                message="Logged out successfully.",
                 status=status.HTTP_200_OK,
             )
 
         except Exception:
-            return Response(
-                {"success": False, "message": "Invalid or expired token."},
+            return APIResponse.fail(
+                message="Invalid or expired token.",
                 status=status.HTTP_400_BAD_REQUEST,
             )

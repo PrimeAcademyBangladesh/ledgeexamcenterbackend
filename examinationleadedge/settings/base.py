@@ -115,9 +115,10 @@ REST_FRAMEWORK = {
         "rest_framework.filters.OrderingFilter",
     ],
     "DEFAULT_RENDERER_CLASSES": (
-        "rest_framework.renderers.JSONRenderer",
+        "core.renderers.EnvelopeJSONRenderer",
         "rest_framework.renderers.BrowsableAPIRenderer",
     ),
+    "EXCEPTION_HANDLER": "core.exceptions.envelope_exception_handler",
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),

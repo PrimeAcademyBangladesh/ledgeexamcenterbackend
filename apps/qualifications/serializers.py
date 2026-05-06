@@ -15,6 +15,7 @@ Performance rules applied here:
 from __future__ import annotations
 
 from django.contrib.auth import get_user_model
+from drf_spectacular.utils import extend_schema_field, inline_serializer
 from rest_framework import serializers
 
 from .models import (
@@ -109,11 +110,24 @@ class QualificationDetailSerializer(serializers.ModelSerializer):
             "units", "created_at", "updated_at",
         ]
 
+    @extend_schema_field(QualificationUnitSerializer(many=True))
     def get_units(self, obj):
         # `units` is prefetched in selectors.qualification_detail_qs — no DB hit.
         units = sorted(obj.units.all(), key=lambda u: u.sort_order)
         return QualificationUnitSerializer(units, many=True).data
 
+    @extend_schema_field(
+        inline_serializer(
+            name="QualificationBankHealthInline",
+            fields={
+                "current": serializers.IntegerField(),
+                "target": serializers.IntegerField(),
+                "min": serializers.IntegerField(),
+                "percent": serializers.FloatField(),
+                "status": serializers.ChoiceField(choices=["healthy", "warning", "critical"]),
+            },
+        )
+    )
     def get_bank_health(self, obj):
         return qualification_bank_health(obj)
 

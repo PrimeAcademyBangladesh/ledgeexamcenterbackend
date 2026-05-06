@@ -1,3 +1,621 @@
-from django.shortcuts import render
+"""
+Views — DRF.
 
-# Create your views here.
+Endpoint summary (all paths assume the urls.py in this folder):
+
+  GET    /api/exams/                          list ExamConfigs (admin/inv)
+  POST   /api/exams/                          create ExamConfig (admin)
+  GET    /api/exams/{id}/                     retrieve
+  PUT    /api/exams/{id}/                     update
+  GET    /api/exams/mock/                     learner-visible published mock exams
+  GET    /api/exams/mock/{exam_id}/start/     start a mock without PIN
+
+  GET    /api/exams/sessions/                 list (?learner_id=, ?invigilator_id=)
+  POST   /api/exams/sessions/                 create scheduled session (admin)
+  PATCH  /api/exams/sessions/{id}/pin/        override PIN (invigilator/admin)
+  PATCH  /api/exams/sessions/{id}/draft/      autosave (learner)
+  PATCH  /api/exams/sessions/{id}/verify-id/  ID verified flag (invigilator)
+  POST   /api/exams/sessions/{id}/unlock/     unlock test (invigilator)
+  POST   /api/exams/sessions/{id}/complete/   confirm completion (invigilator)
+
+  POST   /api/exams/validate-pin/             learner — open exam
+  POST   /api/exams/{session_id}/submit/      learner — submit + score
+
+  POST   /api/violations/                     learner — record incident
+
+  GET    /api/results/                        list (?learner_id=)
+  GET    /api/results/{id}/                   retrieve
+
+  POST   /api/retakes/request/                learner request
+  GET    /api/retakes/                        list (?status=, ?learner_id=)
+  PUT    /api/retakes/{id}/approve/           admin
+  PUT    /api/retakes/{id}/deny/              admin
+  POST   /api/retakes/resit/                  invigilator — create resit session
+"""
+from datetime import datetime, timezone as dt_tz, timedelta
+
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
+from django.db import transaction
+from rest_framework import viewsets, status, mixins
+from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.views import APIView
+
+from questions.models import Question
+from users.models import User
+from .models import (
+    ExamConfig, ExamSession, ExamResult,
+    IntegrityViolation, RetakeRequest,
+)
+from core.permission import (
+    IsAdmin, IsLearner, IsInvigilatorOrAdmin,
+    IsAdminOrReadOnlyForStaff, IsSessionLearnerOwner,
+)
+from core.responses import APIResponse
+from .serializers import (
+    ExamConfigSerializer,
+    ExamSessionSerializer, CreateExamSessionSerializer, UpdateSessionPinSerializer,
+    ValidatePinRequestSerializer, ValidatePinResponseSerializer,
+    SaveExamDraftSerializer, ExamDraftSerializer,
+    SubmitExamSerializer, ExamResultSerializer,
+    ReportViolationSerializer, IntegrityViolationSerializer,
+    ExamQuestionSerializer,
+    RetakeRequestSerializer, CreateRetakeRequestSerializer,
+    CreateResitSessionSerializer, DenyRetakeSerializer,
+)
+from .services import (
+    create_scheduled_session, select_questions_for_learner,
+    score_submission, is_resit_eligible,
+)
+
+
+# ---------------------------------------------------------------------------
+# ExamConfig
+# ---------------------------------------------------------------------------
+class ExamConfigViewSet(viewsets.ModelViewSet):
+    queryset = ExamConfig.objects.select_related("qualification")
+    serializer_class = ExamConfigSerializer
+    permission_classes = [IsAdminOrReadOnlyForStaff]
+
+
+class MockExamListView(APIView):
+    """Learner-visible published mock exams (no PIN required)."""
+    permission_classes = [IsAuthenticated]
+    def get(self, request):
+        qs = ExamConfig.objects.filter(exam_type="mock", status="published")
+        return APIResponse.ok(
+            data=ExamConfigSerializer(qs, many=True).data,
+            message="Mock exams retrieved successfully.",
+        )
+
+
+class MockExamStartView(APIView):
+    """Start a mock exam — generates an unmarked, throwaway question set."""
+    permission_classes = [IsLearner]
+    def get(self, request, exam_id):
+        cfg = get_object_or_404(ExamConfig, id=exam_id, exam_type="mock", status="published")
+        # Mock exams DO NOT mark seen
+        chosen = select_questions_for_learner(
+            exam_config=cfg, learner=request.user, mark_seen_session=None
+        )
+        return APIResponse.ok(
+            data={
+                "valid": True,
+                "examQuestions": ExamQuestionSerializer(chosen, many=True).data,
+                "timeLimitMinutes": cfg.time_limit_minutes,
+                "examTitle": cfg.title,
+                "qualificationTitle": cfg.qualification.title,
+            },
+            message="Mock exam started successfully.",
+        )
+
+
+# ---------------------------------------------------------------------------
+# ExamSession (CRUD + workflow actions)
+# ---------------------------------------------------------------------------
+class ExamSessionViewSet(viewsets.ModelViewSet):
+    queryset = ExamSession.objects.select_related(
+        "exam_config", "exam_config__qualification", "learner", "invigilator"
+    )
+    serializer_class = ExamSessionSerializer
+    permission_classes = [IsAuthenticated]
+    http_method_names = ["get", "post", "patch", "head", "options"]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        u = self.request.user
+        learner_id = self.request.query_params.get("learner_id")
+        invigilator_id = self.request.query_params.get("invigilator_id")
+        if u.role == "learner":
+            qs = qs.filter(learner=u)
+        elif u.role == "invigilator":
+            qs = qs.filter(invigilator=u)
+        if learner_id:
+            qs = qs.filter(learner_id=learner_id)
+        if invigilator_id:
+            qs = qs.filter(invigilator_id=invigilator_id)
+        return qs
+
+    def get_permissions(self):
+        if self.action == "create":
+            return [IsAdmin()]
+        return super().get_permissions()
+
+    def create(self, request, *args, **kwargs):
+        s = CreateExamSessionSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+        v = s.validated_data
+        cfg = get_object_or_404(ExamConfig, id=v["exam_config_id"])
+        learner = get_object_or_404(User, id=v["learner_id"], role="learner")
+        invigilator = get_object_or_404(User, id=v["invigilator_id"], role="invigilator")
+        previous_result = None
+        if v.get("previous_result_id"):
+            previous_result = get_object_or_404(ExamResult, id=v["previous_result_id"])
+
+        session = create_scheduled_session(
+            exam_config=cfg, learner=learner, invigilator=invigilator,
+            scheduled_date=v["scheduled_date"], scheduled_time=v["scheduled_time"],
+            pin=v.get("pin"),
+            allow_immediate_start=v.get("allow_immediate_start", False),
+            reasonable_adjustments=v.get("reasonable_adjustments", ""),
+            extra_time_minutes=v.get("extra_time_minutes"),
+            previous_result=previous_result,
+        )
+        return APIResponse.ok(
+            data=ExamSessionSerializer(session).data,
+            message="Exam session created successfully.",
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(detail=True, methods=["patch"], url_path="pin",
+            permission_classes=[IsInvigilatorOrAdmin])
+    def update_pin(self, request, pk=None):
+        session = self.get_object()
+        s = UpdateSessionPinSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+        session.pin = s.validated_data["pin"]
+        session.save(update_fields=["pin"])
+        return APIResponse.ok(
+            data=ExamSessionSerializer(session).data,
+            message="Session PIN updated successfully.",
+        )
+
+    @action(detail=True, methods=["patch"], url_path="verify-id",
+            permission_classes=[IsInvigilatorOrAdmin])
+    def verify_id(self, request, pk=None):
+        session = self.get_object()
+        session.id_verified = bool(request.data.get("id_verified", True))
+        session.save(update_fields=["id_verified"])
+        return APIResponse.ok(
+            data=ExamSessionSerializer(session).data,
+            message="Session ID verification updated successfully.",
+        )
+
+    @action(detail=True, methods=["post"], url_path="unlock",
+            permission_classes=[IsInvigilatorOrAdmin])
+    def unlock(self, request, pk=None):
+        session = self.get_object()
+        if not session.id_verified:
+            return APIResponse.fail(
+                message="ID must be verified before unlocking the test.",
+                errors={"id_verified": ["ID verification required"]},
+                status=400,
+            )
+        session.pin_active = True
+        if session.status == "scheduled":
+            session.status = "in_progress"
+        session.save(update_fields=["pin_active", "status"])
+        return APIResponse.ok(
+            data=ExamSessionSerializer(session).data,
+            message="Session unlocked successfully.",
+        )
+
+    @action(detail=True, methods=["post"], url_path="complete",
+            permission_classes=[IsInvigilatorOrAdmin])
+    def complete(self, request, pk=None):
+        session = self.get_object()
+        success = bool(request.data.get("completed_successfully", True))
+        notes = request.data.get("incident_notes", "")
+        session.status = "completed"
+        session.completed_successfully = success
+        session.incident_notes = notes if not success else ""
+        session.save(update_fields=["status", "completed_successfully", "incident_notes"])
+        return APIResponse.ok(
+            data=ExamSessionSerializer(session).data,
+            message="Session completed successfully.",
+        )
+
+    @action(detail=True, methods=["patch"], url_path="draft",
+            permission_classes=[IsLearner, IsSessionLearnerOwner])
+    def save_draft(self, request, pk=None):
+        session = self.get_object()
+        self.check_object_permissions(request, session)
+
+        if session.status not in {"scheduled", "in_progress"}:
+            return APIResponse.fail(
+                message="Session is not active.",
+                errors={"session_id": ["Session is not active"]},
+                status=400,
+            )
+
+        s = SaveExamDraftSerializer(data={**request.data, "session_id": pk})
+        s.is_valid(raise_exception=True)
+        v = s.validated_data
+
+        frozen = set(session.question_set or [])
+        if not frozen:
+            return APIResponse.fail(
+                message="Session has no frozen question set.",
+                errors={"session_id": ["No frozen question set"]},
+                status=400,
+            )
+        for a in v["answers"]:
+            if str(a.get("questionId")) not in frozen:
+                return APIResponse.fail(
+                    message="Answer references a question outside this session.",
+                    errors={"answers": ["Invalid question reference"]},
+                    status=400,
+                )
+
+        session.draft_answers = v["answers"]
+        session.draft_current_question_index = v["current_question_index"]
+        session.draft_flagged_question_indexes = v["flagged_question_indexes"]
+        session.draft_remaining_seconds = v["remaining_seconds"]
+        session.draft_updated_at = timezone.now()
+        if session.status == "scheduled":
+            session.status = "in_progress"
+            session.started_at = timezone.now()
+        session.save()
+
+        return APIResponse.ok(
+            data={
+                "sessionId": str(session.id),
+                "answers": session.draft_answers,
+                "currentQuestionIndex": session.draft_current_question_index,
+                "flaggedQuestionIndexes": session.draft_flagged_question_indexes,
+                "remainingSeconds": session.draft_remaining_seconds,
+                "updatedAt": session.draft_updated_at.isoformat(),
+            },
+            message="Draft saved successfully.",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Validate PIN (gateway into exam runtime)
+# ---------------------------------------------------------------------------
+class ValidatePinView(APIView):
+    permission_classes = [IsLearner]
+
+    def post(self, request):
+        s = ValidatePinRequestSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+        v = s.validated_data
+
+        session = get_object_or_404(ExamSession, id=v["session_id"])
+        if session.learner_id != request.user.id:
+            return APIResponse.fail(
+                message="Not your session.",
+                errors={"session_id": ["Invalid session"]},
+                status=403
+            )
+        if session.pin != v["pin"] or not session.pin_active:
+            return APIResponse.fail(
+                message="Invalid PIN",
+                errors={"pin": ["Invalid PIN"]},
+                status=400
+            )
+        if session.status == "completed":
+            return APIResponse.fail(
+                message="This exam has already been completed.",
+                errors={"session_id": ["Exam already completed"]},
+                status=400
+            )
+
+        now = timezone.now()
+        if session.pin_window_start and session.pin_window_end:
+            if now < session.pin_window_start or now > session.pin_window_end:
+                start = session.pin_window_start.isoformat()
+                return APIResponse.fail(
+                    message=f"PIN is only valid from 5 minutes before the scheduled time ({start}) and expires when the test time elapses.",
+                    errors={"pin": ["PIN not valid at this time"]},
+                    status=400
+                )
+
+        if not session.question_set:
+            return APIResponse.fail(
+                message="Exam session has no frozen question set. Ask an admin to recreate the session.",
+                errors={"session_id": ["Session not properly configured"]},
+                status=400
+            )
+
+        # Load questions in stored order
+        q_map = {str(q.id): q for q in Question.objects.filter(id__in=session.question_set)}
+        ordered = [q_map[qid] for qid in session.question_set if qid in q_map]
+        if len(ordered) != session.exam_config.questions_per_exam:
+            return APIResponse.fail(
+                message="Frozen question set is invalid. Ask an admin to recreate the session.",
+                errors={"session_id": ["Session configuration error"]},
+                status=400
+            )
+
+        if session.status == "scheduled":
+            session.status = "in_progress"
+            session.started_at = now
+            session.save(update_fields=["status", "started_at"])
+
+        draft = None
+        if session.draft_updated_at:
+            draft = {
+                "sessionId": str(session.id),
+                "answers": session.draft_answers,
+                "currentQuestionIndex": session.draft_current_question_index,
+                "flaggedQuestionIndexes": session.draft_flagged_question_indexes,
+                "remainingSeconds": session.draft_remaining_seconds,
+                "updatedAt": session.draft_updated_at.isoformat(),
+            }
+
+        return APIResponse.ok(
+            data={
+                "valid": True,
+                "examQuestions": ExamQuestionSerializer(ordered, many=True).data,
+                "timeLimitMinutes": session.exam_config.time_limit_minutes
+                                    + (session.extra_time_minutes or 0),
+                "examTitle": session.exam_config.title,
+                "qualificationTitle": session.exam_config.qualification.title,
+                "draft": draft,
+            },
+            message="PIN validated successfully.",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Submit Exam
+# ---------------------------------------------------------------------------
+class SubmitExamView(APIView):
+    permission_classes = [IsLearner]
+
+    @transaction.atomic
+    def post(self, request, session_id):
+        session = get_object_or_404(ExamSession, id=session_id)
+        if session.learner_id != request.user.id:
+            return APIResponse.fail(
+                message="Forbidden",
+                errors={"session_id": ["Access denied"]},
+                status=403
+            )
+        if session.status not in {"in_progress", "scheduled"}:
+            return APIResponse.fail(
+                message="Session not in progress.",
+                errors={"session_id": ["Invalid session status"]},
+                status=400
+            )
+
+        s = SubmitExamSerializer(data={**request.data, "session_id": session_id})
+        s.is_valid(raise_exception=True)
+        answers = s.validated_data["answers"]
+
+        frozen = set(session.question_set or [])
+        for a in answers:
+            if str(a["questionId"]) not in frozen:
+                return APIResponse.fail(
+                    message="Submission contains a question outside this session.",
+                    errors={"answers": ["Invalid question in submission"]},
+                    status=400
+                )
+
+        scoring = score_submission(session=session, answers=answers)
+
+        attempt_number = ExamResult.objects.filter(
+            learner=session.learner, exam_config=session.exam_config
+        ).count() + 1
+
+        time_taken = 0
+        if session.started_at:
+            time_taken = int((timezone.now() - session.started_at).total_seconds())
+
+        result = ExamResult.objects.create(
+            session=session,
+            learner=session.learner,
+            exam_config=session.exam_config,
+            qualification=session.exam_config.qualification,
+            score_percent=scoring["score_percent"],
+            correct_count=scoring["correct_count"],
+            total_questions=scoring["total_questions"],
+            grade=scoring["grade"],
+            passed=scoring["passed"],
+            time_taken_seconds=time_taken,
+            violation_count=session.violations.count(),
+            question_ids=session.question_set,
+            answers=answers,
+            invigilator_name=f"{session.invigilator.first_name} {session.invigilator.last_name}".strip(),
+            reasonable_adjustments=session.reasonable_adjustments or "",
+            attempt_number=attempt_number,
+            exam_date=session.scheduled_date,
+        )
+        session.status = "completed"
+        session.submitted_at = timezone.now()
+        session.save(update_fields=["status", "submitted_at"])
+
+        return APIResponse.ok(
+            data=ExamResultSerializer(result).data,
+            message="Exam submitted successfully.",
+            status=201
+        )
+
+
+# ---------------------------------------------------------------------------
+# Integrity violations
+# ---------------------------------------------------------------------------
+class ReportViolationView(APIView):
+    permission_classes = [IsLearner]
+
+    def post(self, request):
+        s = ReportViolationSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+        v = s.validated_data
+        session = get_object_or_404(ExamSession, id=v["session_id"])
+        if session.learner_id != request.user.id:
+            return APIResponse.fail(
+                message="Forbidden",
+                errors={"session_id": ["Access denied"]},
+                status=403
+            )
+        if session.status != "in_progress":
+            return APIResponse.fail(
+                message="Session not active.",
+                errors={"session_id": ["Session not active"]},
+                status=400
+            )
+        IntegrityViolation.objects.create(session=session, **v["violation"])
+        return APIResponse.ok(
+            data={"strikeCount": session.violations.count()},
+            message="Violation reported successfully.",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Results
+# ---------------------------------------------------------------------------
+class ExamResultViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+    queryset = ExamResult.objects.select_related(
+        "learner", "exam_config", "qualification", "session"
+    ).prefetch_related("session__violations")
+    serializer_class = ExamResultSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        u = self.request.user
+        learner_id = self.request.query_params.get("learner_id")
+        qualification_id = self.request.query_params.get("qualification_id")
+        if u.role == "learner":
+            qs = qs.filter(learner=u)
+        if learner_id:
+            qs = qs.filter(learner_id=learner_id)
+        if qualification_id:
+            qs = qs.filter(qualification_id=qualification_id)
+        return qs
+
+
+# ---------------------------------------------------------------------------
+# Retakes / Resits
+# ---------------------------------------------------------------------------
+class RetakeRequestViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
+    queryset = RetakeRequest.objects.select_related(
+        "learner", "exam_config", "exam_config__qualification", "previous_result"
+    )
+    serializer_class = RetakeRequestSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        u = self.request.user
+        if u.role == "learner":
+            qs = qs.filter(learner=u)
+        if status_q := self.request.query_params.get("status"):
+            qs = qs.filter(status=status_q)
+        if lid := self.request.query_params.get("learner_id"):
+            qs = qs.filter(learner_id=lid)
+        return qs
+
+
+class RequestRetakeView(APIView):
+    permission_classes = [IsLearner]
+    def post(self, request):
+        s = CreateRetakeRequestSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+        v = s.validated_data
+        if str(v["learner_id"]) != str(request.user.id):
+            return APIResponse.fail(
+                message="Forbidden",
+                errors={"learner_id": ["Access denied"]},
+                status=403
+            )
+        prev = get_object_or_404(ExamResult, id=v["previous_result_id"], learner=request.user)
+        cfg = get_object_or_404(ExamConfig, id=v["exam_config_id"])
+        if RetakeRequest.objects.filter(previous_result=prev, status="pending").exists():
+            return APIResponse.fail(
+                message="A pending retake already exists for this result.",
+                errors={"previous_result_id": ["Duplicate request"]},
+                status=400
+            )
+        req = RetakeRequest.objects.create(
+            learner=request.user, exam_config=cfg, previous_result=prev,
+        )
+        return APIResponse.ok(
+            data=RetakeRequestSerializer(req).data,
+            message="Retake request submitted successfully.",
+            status=201
+        )
+
+
+class ApproveRetakeView(APIView):
+    permission_classes = [IsAdmin]
+    def put(self, request, retake_id):
+        req = get_object_or_404(RetakeRequest, id=retake_id, status="pending")
+        req.status = "approved"
+        req.reviewed_at = timezone.now()
+        req.reviewed_by = request.user
+        req.save(update_fields=["status", "reviewed_at", "reviewed_by"])
+        return APIResponse.ok(
+            data=RetakeRequestSerializer(req).data,
+            message="Retake request approved successfully.",
+        )
+
+
+class DenyRetakeView(APIView):
+    permission_classes = [IsAdmin]
+    def put(self, request, retake_id):
+        s = DenyRetakeSerializer(data=request.data); s.is_valid(raise_exception=True)
+        req = get_object_or_404(RetakeRequest, id=retake_id, status="pending")
+        req.status = "denied"
+        req.reviewed_at = timezone.now()
+        req.reviewed_by = request.user
+        req.denial_reason = s.validated_data["denial_reason"]
+        req.save(update_fields=["status", "reviewed_at", "reviewed_by", "denial_reason"])
+        return APIResponse.ok(
+            data=RetakeRequestSerializer(req).data,
+            message="Retake request denied successfully.",
+        )
+
+
+class CreateResitSessionView(APIView):
+    """
+    Invigilator-driven: take a previous_result, verify resit eligibility,
+    create a fresh ExamSession with a brand-new unseen question set.
+    """
+    permission_classes = [IsInvigilatorOrAdmin]
+
+    def post(self, request):
+        s = CreateResitSessionSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+        v = s.validated_data
+
+        prev = get_object_or_404(ExamResult, id=v["previous_result_id"])
+        cfg = prev.exam_config
+        if not is_resit_eligible(prev.score_percent, cfg.grade_pass):
+            return APIResponse.fail(
+                message="Learner is outside the 10% resit eligibility window.",
+                errors={"previous_result_id": ["Not eligible for resit"]},
+                status=400
+            )
+
+        invigilator = get_object_or_404(User, id=v["invigilator_id"], role="invigilator")
+
+        scheduled_date = v.get("scheduled_date") or (timezone.now().date() + timedelta(days=1))
+        scheduled_time = v.get("scheduled_time") or datetime.strptime("09:00", "%H:%M").time()
+
+        session = create_scheduled_session(
+            exam_config=cfg,
+            learner=prev.learner,
+            invigilator=invigilator,
+            scheduled_date=scheduled_date,
+            scheduled_time=scheduled_time,
+            previous_result=prev,
+        )
+        return APIResponse.ok(
+            data=ExamSessionSerializer(session).data,
+            message="Resit session created successfully.",
+            status=201
+        )

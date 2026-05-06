@@ -10,7 +10,13 @@ Views are thin: they wire HTTP → selector (read) or service (write).
 from __future__ import annotations
 
 from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework import filters, generics, viewsets
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiTypes,
+    extend_schema,
+    extend_schema_view,
+)
+from rest_framework import filters, generics, serializers as drf_serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import IsAuthenticated
@@ -18,6 +24,13 @@ from rest_framework.permissions import IsAuthenticated
 from core.mixins import AuditLogMixin, SerializerByActionMixin
 from core.permission import IsAdmin, IsAdminOrReadOnlyForStaff
 from core.responses import APIResponse
+from core.schemas import (
+    DEFAULT_ERROR_RESPONSES,
+    EmptyEnvelope,
+    envelope_action,
+    envelope_detail,
+    envelope_list,
+)
 
 from . import selectors, services
 from .models import (
@@ -44,9 +57,81 @@ def _include_inactive(request) -> bool:
 
 
 # ────────────────────────────────────────────────────────────
+#  Common OpenAPI parameters
+# ────────────────────────────────────────────────────────────
+INCLUDE_INACTIVE_PARAM = OpenApiParameter(
+    name="include_inactive",
+    type=OpenApiTypes.BOOL,
+    location=OpenApiParameter.QUERY,
+    required=False,
+    description="If `true`, include rows where `is_active=false`. Defaults to false.",
+)
+
+
+# ────────────────────────────────────────────────────────────
+#  Tag constants — match drf-spectacular `tags=[...]` everywhere
+# ────────────────────────────────────────────────────────────
+TAG_QUALIFICATION = "Qualification"
+TAG_SECTOR = "Qualification Sector"
+TAG_LEVEL = "Qualification Level"
+TAG_UNIT = "Qualification Unit"
+TAG_ENROLLMENT = "Qualification Enrollment"
+
+
+# ────────────────────────────────────────────────────────────
 #  Sector
 # ────────────────────────────────────────────────────────────
+@extend_schema_view(
+    list=extend_schema(
+        tags=[TAG_SECTOR],
+        summary="List sectors",
+        parameters=[INCLUDE_INACTIVE_PARAM],
+        responses={200: envelope_list(SectorSerializer, message_example="Sectors retrieved successfully."), **DEFAULT_ERROR_RESPONSES},
+    ),
+    retrieve=extend_schema(
+        tags=[TAG_SECTOR],
+        summary="Retrieve a sector",
+        responses={200: envelope_detail(SectorSerializer, message_example="Sector retrieved successfully."), **DEFAULT_ERROR_RESPONSES},
+    ),
+    create=extend_schema(
+        tags=[TAG_SECTOR],
+        summary="Create a sector",
+        request=SectorSerializer,
+        responses={201: envelope_detail(SectorSerializer, message_example="Sector created successfully."), **DEFAULT_ERROR_RESPONSES},
+    ),
+    update=extend_schema(
+        tags=[TAG_SECTOR],
+        summary="Replace a sector",
+        request=SectorSerializer,
+        responses={200: envelope_detail(SectorSerializer, message_example="Sector updated successfully."), **DEFAULT_ERROR_RESPONSES},
+    ),
+    partial_update=extend_schema(
+        tags=[TAG_SECTOR],
+        summary="Partially update a sector",
+        request=SectorSerializer,
+        responses={200: envelope_detail(SectorSerializer, message_example="Sector updated successfully."), **DEFAULT_ERROR_RESPONSES},
+    ),
+    destroy=extend_schema(
+        tags=[TAG_SECTOR],
+        summary="Delete a sector",
+        description="Hard-deletes a sector. Fails with 409 if any qualification still references it.",
+        responses={204: None, **DEFAULT_ERROR_RESPONSES},
+    ),
+)
 class SectorViewSet(AuditLogMixin, viewsets.ModelViewSet):
+    """
+    Why: Admin-managed sector list. Powers every "Sector" dropdown in the UI.
+    Where:
+      - GET    /api/sectors/                → AdminQualifications + AdminExams + AdminQuestionBank + AdminReports dropdowns
+      - GET    /api/sectors/{id}/           → Admin Sectors settings page (planned)
+      - POST   /api/sectors/                → "Add Sector" admin form
+      - PATCH  /api/sectors/{id}/           → Toggle is_active, rename, reorder
+      - DELETE /api/sectors/{id}/           → Hard delete (PROTECTED if any Qualification refs it)
+    Notes:
+      - Default queryset hides inactive sectors. Admin can pass ?include_inactive=true
+        to see soft-disabled rows on the management page.
+      - List endpoint is ETag-cached for 5 min; mutation invalidates the tag.
+    """
     queryset = Sector.objects.all()  # for router introspection
     serializer_class = SectorSerializer
     permission_classes = [IsAdminOrReadOnlyForStaff]
@@ -66,7 +151,50 @@ class SectorViewSet(AuditLogMixin, viewsets.ModelViewSet):
 # ────────────────────────────────────────────────────────────
 #  Level
 # ────────────────────────────────────────────────────────────
+@extend_schema_view(
+    list=extend_schema(
+        tags=[TAG_LEVEL],
+        summary="List levels",
+        parameters=[INCLUDE_INACTIVE_PARAM],
+        responses={200: envelope_list(LevelSerializer, message_example="Levels retrieved successfully."), **DEFAULT_ERROR_RESPONSES},
+    ),
+    retrieve=extend_schema(
+        tags=[TAG_LEVEL],
+        summary="Retrieve a level",
+        responses={200: envelope_detail(LevelSerializer, message_example="Level retrieved successfully."), **DEFAULT_ERROR_RESPONSES},
+    ),
+    create=extend_schema(
+        tags=[TAG_LEVEL],
+        summary="Create a level",
+        request=LevelSerializer,
+        responses={201: envelope_detail(LevelSerializer, message_example="Level created successfully."), **DEFAULT_ERROR_RESPONSES},
+    ),
+    update=extend_schema(
+        tags=[TAG_LEVEL],
+        summary="Replace a level",
+        request=LevelSerializer,
+        responses={200: envelope_detail(LevelSerializer, message_example="Level updated successfully."), **DEFAULT_ERROR_RESPONSES},
+    ),
+    partial_update=extend_schema(
+        tags=[TAG_LEVEL],
+        summary="Partially update a level",
+        request=LevelSerializer,
+        responses={200: envelope_detail(LevelSerializer, message_example="Level updated successfully."), **DEFAULT_ERROR_RESPONSES},
+    ),
+    destroy=extend_schema(
+        tags=[TAG_LEVEL],
+        summary="Delete a level",
+        description="Hard-deletes a level. Fails with 409 if any qualification still references it.",
+        responses={204: None, **DEFAULT_ERROR_RESPONSES},
+    ),
+)
 class LevelViewSet(AuditLogMixin, viewsets.ModelViewSet):
+    """
+    Why: Same pattern as SectorViewSet. Admin-managed RQF levels.
+    Where:
+      - All admin forms that create/edit Qualifications.
+      - Reports filter dropdown (planned).
+    """
     queryset = Level.objects.all()
     serializer_class = LevelSerializer
     permission_classes = [IsAdminOrReadOnlyForStaff]
@@ -84,7 +212,61 @@ class LevelViewSet(AuditLogMixin, viewsets.ModelViewSet):
 # ────────────────────────────────────────────────────────────
 #  Qualification
 # ────────────────────────────────────────────────────────────
+@extend_schema_view(
+    list=extend_schema(
+        tags=[TAG_QUALIFICATION],
+        summary="List qualifications",
+        parameters=[INCLUDE_INACTIVE_PARAM],
+        responses={200: envelope_list(QualificationListSerializer, message_example="Qualifications retrieved successfully."), **DEFAULT_ERROR_RESPONSES},
+    ),
+    retrieve=extend_schema(
+        tags=[TAG_QUALIFICATION],
+        summary="Retrieve a qualification",
+        responses={200: envelope_detail(QualificationDetailSerializer, message_example="Qualification retrieved successfully."), **DEFAULT_ERROR_RESPONSES},
+    ),
+    create=extend_schema(
+        tags=[TAG_QUALIFICATION],
+        summary="Create a qualification",
+        request=QualificationWriteSerializer,
+        responses={201: envelope_detail(QualificationDetailSerializer, message_example="Qualification created successfully."), **DEFAULT_ERROR_RESPONSES},
+    ),
+    update=extend_schema(
+        tags=[TAG_QUALIFICATION],
+        summary="Replace a qualification",
+        request=QualificationWriteSerializer,
+        responses={200: envelope_detail(QualificationDetailSerializer, message_example="Qualification updated successfully."), **DEFAULT_ERROR_RESPONSES},
+    ),
+    partial_update=extend_schema(
+        tags=[TAG_QUALIFICATION],
+        summary="Partially update a qualification",
+        request=QualificationWriteSerializer,
+        responses={200: envelope_detail(QualificationDetailSerializer, message_example="Qualification updated successfully."), **DEFAULT_ERROR_RESPONSES},
+    ),
+    destroy=extend_schema(
+        tags=[TAG_QUALIFICATION],
+        summary="Delete a qualification",
+        responses={204: None, **DEFAULT_ERROR_RESPONSES},
+    ),
+)
 class QualificationViewSet(SerializerByActionMixin, AuditLogMixin, viewsets.ModelViewSet):
+    """
+    Why: Central catalogue. Read by every role; written only by admins.
+    Where (mapped to current React screens):
+      - GET  /api/qualifications/?is_active=true&page_size=200
+            → AdminExams.tsx, AdminLearners.tsx, AdminQuestionBank.tsx,
+              AdminReports.tsx — every dropdown.
+      - GET  /api/qualifications/{id}/
+            → AdminExams "Create Exam" form (pre-fills defaults from this payload)
+      - POST/PATCH/DELETE /api/qualifications/
+            → "Manage Qualifications" admin page (planned).
+    Permissions:
+      - Read: admin + invigilator. Learners go through /api/me/qualifications/
+              (separate view, returns lean payload without resit fields).
+      - Write: admin only.
+    Performance:
+      - List: select_related sector+level, annotate question_count.
+      - Detail: prefetch units; bankHealth computed via annotated query, not Python.
+    """
     queryset = Qualification.objects.all()
     serializer_class = QualificationDetailSerializer
     serializer_action_classes = {
@@ -111,16 +293,51 @@ class QualificationViewSet(SerializerByActionMixin, AuditLogMixin, viewsets.Mode
         # create/update/destroy — relations are enough.
         return Qualification.objects.with_relations()
 
+    @extend_schema(
+        tags=[TAG_QUALIFICATION],
+        summary="Retrieve question-bank health for a qualification",
+        responses={
+            200: envelope_action(
+                {
+                    "current": drf_serializers.IntegerField(),
+                    "target": drf_serializers.IntegerField(),
+                    "min": drf_serializers.IntegerField(),
+                    "percent": drf_serializers.FloatField(),
+                    "status": drf_serializers.ChoiceField(choices=["healthy", "warning", "critical"]),
+                },
+                name="QualificationBankHealth",
+                message_example="Bank health retrieved successfully.",
+            ),
+            **DEFAULT_ERROR_RESPONSES,
+        },
+    )
     @action(detail=True, methods=["get"], url_path="bank-health")
     def bank_health(self, request, pk=None):
+        """
+        Why: AdminQuestionBank polls this every 30s while admins add questions.
+             Splitting it out means the heavy COUNT doesn't hit the detail
+             endpoint, which is cached.
+        """
         qual = self.get_object()
         return APIResponse.ok(
             data=selectors.qualification_bank_health(qual),
             message="Bank health retrieved successfully.",
         )
 
+    @extend_schema(
+        tags=[TAG_QUALIFICATION],
+        summary="List units belonging to a qualification",
+        responses={
+            200: envelope_detail(
+                QualificationUnitSerializer(many=True),
+                message_example="Units retrieved successfully.",
+            ),
+            **DEFAULT_ERROR_RESPONSES,
+        },
+    )
     @action(detail=True, methods=["get"])
     def units(self, request, pk=None):
+        """GET /api/qualifications/{id}/units/ — used by question editor unit picker."""
         qual = self.get_object()
         units = sorted(qual.units.all(), key=lambda u: u.sort_order)
         return APIResponse.ok(
@@ -129,19 +346,84 @@ class QualificationViewSet(SerializerByActionMixin, AuditLogMixin, viewsets.Mode
         )
 
 
+@extend_schema(
+    tags=[TAG_QUALIFICATION],
+    summary="List qualifications the current learner is enrolled on",
+    responses={
+        200: envelope_list(QualificationListSerializer, message_example="Your qualifications retrieved successfully."),
+        **DEFAULT_ERROR_RESPONSES,
+    },
+)
 class MyQualificationsView(generics.ListAPIView):
-    """Learner-safe — strips resit/bank fields by reusing the list serializer."""
+    """
+    Why: Learners must NOT see resit_fail_margin_percent, min_bank_size, etc.
+         (information disclosure → learners could game the resit threshold).
+         Separate endpoint with a stripped serializer is safer than runtime
+         field hiding.
+    Where:
+      - GET /api/me/qualifications/  → LearnerDashboard.tsx "Your qualification" card.
+    """
+    queryset = Qualification.objects.none()
     serializer_class = QualificationListSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False):
+            return Qualification.objects.none()
         return selectors.qualification_for_learner_qs(self.request.user)
 
 
 # ────────────────────────────────────────────────────────────
 #  QualificationUnit
 # ────────────────────────────────────────────────────────────
+@extend_schema_view(
+    list=extend_schema(
+        tags=[TAG_UNIT],
+        summary="List qualification units",
+        responses={200: envelope_list(QualificationUnitSerializer, message_example="Units retrieved successfully."), **DEFAULT_ERROR_RESPONSES},
+    ),
+    retrieve=extend_schema(
+        tags=[TAG_UNIT],
+        summary="Retrieve a qualification unit",
+        responses={200: envelope_detail(QualificationUnitSerializer, message_example="Unit retrieved successfully."), **DEFAULT_ERROR_RESPONSES},
+    ),
+    create=extend_schema(
+        tags=[TAG_UNIT],
+        summary="Create a qualification unit",
+        request=QualificationUnitSerializer,
+        responses={201: envelope_detail(QualificationUnitSerializer, message_example="Unit created successfully."), **DEFAULT_ERROR_RESPONSES},
+    ),
+    update=extend_schema(
+        tags=[TAG_UNIT],
+        summary="Replace a qualification unit",
+        request=QualificationUnitSerializer,
+        responses={200: envelope_detail(QualificationUnitSerializer, message_example="Unit updated successfully."), **DEFAULT_ERROR_RESPONSES},
+    ),
+    partial_update=extend_schema(
+        tags=[TAG_UNIT],
+        summary="Partially update a qualification unit",
+        request=QualificationUnitSerializer,
+        responses={200: envelope_detail(QualificationUnitSerializer, message_example="Unit updated successfully."), **DEFAULT_ERROR_RESPONSES},
+    ),
+    destroy=extend_schema(
+        tags=[TAG_UNIT],
+        summary="Delete a qualification unit",
+        responses={204: None, **DEFAULT_ERROR_RESPONSES},
+    ),
+)
 class QualificationUnitViewSet(AuditLogMixin, viewsets.ModelViewSet):
+    """
+    Why: Units are admin-managed sub-topics. Used for question tagging and
+         per-unit analytics.
+    Where:
+      - GET   /api/qualifications/{qid}/units/    → AdminQuestionBank tag picker
+      - POST  /api/qualifications/{qid}/units/    → "Manage Units" modal
+      - PATCH /api/units/{id}/                    → Inline edit
+    Routing:
+      - Nested under qualifications via drf-nested-routers, OR exposed flat
+        with `?qualification={id}` filter. Pick one and stay consistent —
+        recommendation: nested for writes, flat for reads.
+    """
     queryset = QualificationUnit.objects.all()
     serializer_class = QualificationUnitSerializer
     permission_classes = [IsAdminOrReadOnlyForStaff]
@@ -158,7 +440,57 @@ class QualificationUnitViewSet(AuditLogMixin, viewsets.ModelViewSet):
 # ────────────────────────────────────────────────────────────
 #  Enrollment
 # ────────────────────────────────────────────────────────────
+@extend_schema_view(
+    list=extend_schema(
+        tags=[TAG_ENROLLMENT],
+        summary="List enrolments",
+        responses={200: envelope_list(EnrollmentReadSerializer, message_example="Enrolments retrieved successfully."), **DEFAULT_ERROR_RESPONSES},
+    ),
+    retrieve=extend_schema(
+        tags=[TAG_ENROLLMENT],
+        summary="Retrieve an enrolment",
+        responses={200: envelope_detail(EnrollmentReadSerializer, message_example="Enrolment retrieved successfully."), **DEFAULT_ERROR_RESPONSES},
+    ),
+    create=extend_schema(
+        tags=[TAG_ENROLLMENT],
+        summary="Create an enrolment",
+        request=EnrollmentWriteSerializer,
+        responses={201: envelope_detail(EnrollmentReadSerializer, message_example="Enrolment created successfully."), **DEFAULT_ERROR_RESPONSES},
+    ),
+    update=extend_schema(
+        tags=[TAG_ENROLLMENT],
+        summary="Replace an enrolment",
+        request=EnrollmentWriteSerializer,
+        responses={200: envelope_detail(EnrollmentReadSerializer, message_example="Enrolment updated successfully."), **DEFAULT_ERROR_RESPONSES},
+    ),
+    partial_update=extend_schema(
+        tags=[TAG_ENROLLMENT],
+        summary="Partially update an enrolment",
+        request=EnrollmentWriteSerializer,
+        responses={200: envelope_detail(EnrollmentReadSerializer, message_example="Enrolment updated successfully."), **DEFAULT_ERROR_RESPONSES},
+    ),
+    destroy=extend_schema(
+        tags=[TAG_ENROLLMENT],
+        summary="Withdraw an enrolment (soft-delete)",
+        description="Sets `status='withdrawn'` and `withdrawn_at=today`. The row is preserved for audit.",
+        responses={204: None, **DEFAULT_ERROR_RESPONSES},
+    ),
+)
 class EnrollmentViewSet(SerializerByActionMixin, AuditLogMixin, viewsets.ModelViewSet):
+    """
+    Why: Admin-only CRUD for learner enrolments. Drives the AdminLearners
+         "Add/Edit Learner" form (which currently sets a flat qualificationId
+         on the learner — that field will move here).
+    Where:
+      - GET    /api/enrollments/?learner={id}      → AdminLearners detail drawer
+      - POST   /api/enrollments/                   → "Add Learner" form
+      - PATCH  /api/enrollments/{id}/              → "Edit" / "Withdraw" actions
+      - DELETE /api/enrollments/{id}/              → Soft-delete only (sets status=withdrawn)
+    Permissions:
+      - Admin: full CRUD.
+      - Invigilator: read-only on enrolments for sessions they invigilate.
+      - Learner: denied (use /api/me/enrollments/).
+    """
     queryset = QualificationEnrollment.objects.all()
     serializer_class = EnrollmentReadSerializer
     serializer_action_classes = {
@@ -182,18 +514,72 @@ class EnrollmentViewSet(SerializerByActionMixin, AuditLogMixin, viewsets.ModelVi
         self._audit("withdraw", instance)
 
 
+@extend_schema(
+    tags=[TAG_ENROLLMENT],
+    summary="List the current learner's enrolments",
+    responses={
+        200: envelope_list(EnrollmentReadSerializer, message_example="Your enrolments retrieved successfully."),
+        **DEFAULT_ERROR_RESPONSES,
+    },
+)
 class MyEnrollmentsView(generics.ListAPIView):
+    """
+    Why: Learners need to see what they're enrolled on, but must not see
+         other learners' rows or admin-only notes.
+    Where:
+      - GET /api/me/enrollments/  → LearnerDashboard.tsx top card
+    """
+    queryset = QualificationEnrollment.objects.none()  # for spectacular schema introspection
     serializer_class = EnrollmentReadSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False):
+            return QualificationEnrollment.objects.none()
         return selectors.enrollment_for_learner_qs(self.request.user)
 
 
 # ────────────────────────────────────────────────────────────
 #  Bulk import (CSV)
 # ────────────────────────────────────────────────────────────
+@extend_schema(
+    tags=[TAG_ENROLLMENT],
+    summary="Bulk-import enrolments from a CSV file",
+    description=(
+        "Accepts a multipart/form-data CSV. Required columns: "
+        "`learner_id, qualification_id, cohort, enrolled_at`. "
+        "Optional: `employer, status, expected_end_date, notes`. "
+        "The natural key `(learner_id, qualification_id, cohort)` is upserted."
+    ),
+    request={
+        "multipart/form-data": {
+            "type": "object",
+            "properties": {
+                "file": {"type": "string", "format": "binary"},
+            },
+            "required": ["file"],
+        }
+    },
+    responses={
+        201: envelope_action(
+            {"created": drf_serializers.IntegerField()},
+            name="BulkEnrollmentImport",
+            message_example="N enrolment(s) imported successfully.",
+        ),
+        **DEFAULT_ERROR_RESPONSES,
+    },
+)
 class BulkEnrollmentImportView(generics.GenericAPIView):
+    """
+    Why: AdminLearners.tsx will need a CSV import path (office onboards
+         cohorts of 50–200 learners at once). One row per (learner, qual, cohort).
+    Where:
+      - POST /api/enrollments/bulk-import/   (multipart, file=enrollments.csv)
+    Behaviour:
+      - Atomic transaction: either ALL rows pass validation or NONE are written.
+      - Returns per-row errors for the UI to render in a table.
+      - Idempotent: re-uploading the same CSV is a no-op (unique constraint).
+    """
     permission_classes = [IsAdmin]
     parser_classes = [MultiPartParser]
     serializer_class = EnrollmentReadSerializer  # for browsable API only
