@@ -2,4 +2,6 @@ from django.apps import AppConfig
 
 
 class LearnersConfig(AppConfig):
-    name = 'apps.learners'
+    default_auto_field = "django.db.models.BigAutoField"
+    name = "apps.learners"
+    verbose_name = "Learners"

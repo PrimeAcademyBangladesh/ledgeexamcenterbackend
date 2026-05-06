@@ -15,6 +15,7 @@ Performance rules applied here:
 from __future__ import annotations
 
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError as DjangoValidationError
 from drf_spectacular.utils import extend_schema_field, inline_serializer
 from rest_framework import serializers
 
@@ -24,6 +25,7 @@ from .models import (
     QualificationEnrollment,
     QualificationUnit,
     Sector,
+    validate_qualification_business_rules,
 )
 from .selectors import qualification_bank_health
 
@@ -160,18 +162,22 @@ class QualificationWriteSerializer(serializers.ModelSerializer):
         instance = self.instance
 
         def pick(field):
-            return attrs.get(field, getattr(instance, field, None))
+            if field in attrs:
+                return attrs[field]
+            if instance is not None:
+                return getattr(instance, field)
+            return self.Meta.model._meta.get_field(field).get_default()
 
-        p, m, d = pick("default_pass_boundary"), pick("default_merit_boundary"), pick("default_distinction_boundary")
-        if p is not None and m is not None and d is not None and not (p < m < d):
-            raise serializers.ValidationError(
-                {"default_merit_boundary": "Grade boundaries must satisfy: pass < merit < distinction."}
+        try:
+            validate_qualification_business_rules(
+                default_pass_boundary=pick("default_pass_boundary"),
+                default_merit_boundary=pick("default_merit_boundary"),
+                default_distinction_boundary=pick("default_distinction_boundary"),
+                min_bank_size=pick("min_bank_size"),
+                recommended_bank_size=pick("recommended_bank_size"),
             )
-        mn, rec = pick("min_bank_size"), pick("recommended_bank_size")
-        if mn and rec and mn > rec:
-            raise serializers.ValidationError(
-                {"min_bank_size": "min_bank_size cannot exceed recommended_bank_size."}
-            )
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(exc.message_dict)
         return attrs
 
 

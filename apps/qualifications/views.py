@@ -317,8 +317,15 @@ class QualificationViewSet(SerializerByActionMixin, AuditLogMixin, viewsets.Mode
         Why: AdminQuestionBank polls this every 30s while admins add questions.
              Splitting it out means the heavy COUNT doesn't hit the detail
              endpoint, which is cached.
+        Perf: the detail queryset prefetches sector/level/units which we don't
+             need here. Fetch only the three columns the health calc reads.
         """
-        qual = self.get_object()
+        from django.shortcuts import get_object_or_404
+        qual = get_object_or_404(
+            Qualification.objects.only("id", "recommended_bank_size", "min_bank_size"),
+            pk=pk,
+        )
+        self.check_object_permissions(request, qual)
         return APIResponse.ok(
             data=selectors.qualification_bank_health(qual),
             message="Bank health retrieved successfully.",
@@ -337,9 +344,17 @@ class QualificationViewSet(SerializerByActionMixin, AuditLogMixin, viewsets.Mode
     )
     @action(detail=True, methods=["get"])
     def units(self, request, pk=None):
-        """GET /api/qualifications/{id}/units/ — used by question editor unit picker."""
-        qual = self.get_object()
-        units = sorted(qual.units.all(), key=lambda u: u.sort_order)
+        """
+        GET /api/qualifications/{id}/units/ — used by question editor unit picker.
+        Perf: query units directly with DB-side ordering. Avoids loading the
+        parent qualification + its sector/level/units prefetch chain.
+        """
+        # Object-level perms here are class-wide (admin vs staff read), so a
+        # bare existence check is enough to enforce the permission contract.
+        if not Qualification.objects.filter(pk=pk).exists():
+            from django.http import Http404
+            raise Http404("Qualification not found.")
+        units = QualificationUnit.objects.filter(qualification_id=pk).order_by("sort_order")
         return APIResponse.ok(
             data=QualificationUnitSerializer(units, many=True).data,
             message="Units retrieved successfully.",

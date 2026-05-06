@@ -15,7 +15,7 @@ from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from questions.models import Question
-from .models import ExamConfig, ExamSession, LearnerSeenQuestion
+from .models import ExamConfig, ExamResult, ExamSession, LearnerSeenQuestion
 
 
 # ---------------------------------------------------------------------------
@@ -29,6 +29,13 @@ def select_questions_for_learner(*, exam_config: ExamConfig, learner, mark_seen_
     If `mark_seen_session` is provided, also creates LearnerSeenQuestion rows
     inside the same transaction. Pass None for mock/practice exams.
     """
+    if mark_seen_session is not None:
+        if not transaction.get_connection().in_atomic_block:
+            raise RuntimeError("Persisted question selection must run inside transaction.atomic().")
+        # Serialize per-learner paper allocation so two scheduled/live sessions
+        # cannot read the same unseen pool before either writes LearnerSeenQuestion.
+        learner = learner.__class__.objects.select_for_update().get(pk=learner.pk)
+
     qualification = exam_config.qualification
     required_count = exam_config.questions_per_exam
 
@@ -98,6 +105,10 @@ def create_scheduled_session(
     reasonable_adjustments="", extra_time_minutes=None,
     previous_result=None,
 ):
+    if previous_result is not None:
+        previous_result = ExamResult.objects.select_for_update().get(pk=previous_result.pk)
+    exam_config = ExamConfig.objects.select_for_update().get(pk=exam_config.pk)
+
     pin_start, pin_end = _compute_pin_window(
         scheduled_date, scheduled_time, exam_config, extra_time_minutes or 0
     )

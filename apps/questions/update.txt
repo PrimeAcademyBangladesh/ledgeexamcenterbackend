@@ -1,0 +1,46 @@
+11. QualificationUnit serializer missing write support
+
+Current serializer:
+
+fields = [
+    "id", "code", "title", ...
+]
+
+But no:
+
+qualification_id
+
+So standalone unit creation may fail or require nested behavior not shown.
+
+Likely incomplete.
+
+
+12. hasattr(self.model, "questions") is fragile
+
+Example:
+
+if not hasattr(self.model, "questions"):
+
+This is brittle.
+
+Better:
+
+try:
+    self.model._meta.get_field("questions")
+
+Or explicit dependency.
+
+13. Soft-delete semantics inconsistent
+
+You:
+
+hard-delete sectors/levels
+soft-delete enrollments
+
+Need a platform-wide deletion policy.
+
+Recommendation:
+
+lookup/config tables → soft deactivate
+transactional/audit entities → never hard delete
+sessions/results → immutable

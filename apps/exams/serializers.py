@@ -242,7 +242,7 @@ class RetakeRequestSerializer(serializers.ModelSerializer):
     qualification_name = serializers.CharField(source="exam_config.qualification.title", read_only=True)
     previous_score = serializers.IntegerField(source="previous_result.score_percent", read_only=True)
     previous_grade = serializers.CharField(source="previous_result.grade", read_only=True)
-    new_session_id = serializers.UUIDField(source="new_session_id", read_only=True)
+    new_session_id = serializers.UUIDField(read_only=True)
 
     class Meta:
         model = RetakeRequest

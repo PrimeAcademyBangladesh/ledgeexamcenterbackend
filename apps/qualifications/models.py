@@ -20,6 +20,54 @@ from .querysets import (
 )
 
 
+def _unique_slug(instance, raw_value: str) -> str:
+    max_length = instance._meta.get_field("slug").max_length
+    base = slugify(raw_value)[:max_length] or str(uuid.uuid4())[:8]
+    candidate = base
+    suffix = 2
+    queryset = instance.__class__.objects.all()
+    if instance.pk:
+        queryset = queryset.exclude(pk=instance.pk)
+
+    while queryset.filter(slug=candidate).exists():
+        suffix_text = f"-{suffix}"
+        candidate = f"{base[:max_length - len(suffix_text)]}{suffix_text}"
+        suffix += 1
+    return candidate
+
+
+def validate_qualification_business_rules(
+    *,
+    default_pass_boundary,
+    default_merit_boundary,
+    default_distinction_boundary,
+    min_bank_size,
+    recommended_bank_size,
+) -> None:
+    errors = {}
+    if (
+        default_pass_boundary is not None
+        and default_merit_boundary is not None
+        and default_distinction_boundary is not None
+        and not (
+            default_pass_boundary
+            < default_merit_boundary
+            < default_distinction_boundary
+        )
+    ):
+        errors["default_merit_boundary"] = (
+            "Grade boundaries must satisfy: pass < merit < distinction."
+        )
+    if (
+        min_bank_size is not None
+        and recommended_bank_size is not None
+        and min_bank_size > recommended_bank_size
+    ):
+        errors["min_bank_size"] = "min_bank_size cannot exceed recommended_bank_size."
+    if errors:
+        raise ValidationError(errors)
+
+
 # ────────────────────────────────────────────────────────────
 #  Sector
 # ────────────────────────────────────────────────────────────
@@ -46,7 +94,7 @@ class Sector(models.Model):
 
     def save(self, *args, **kwargs):
         if not self.slug:
-            self.slug = slugify(self.name)
+            self.slug = _unique_slug(self, self.name)
         super().save(*args, **kwargs)
 
 
@@ -68,6 +116,12 @@ class Level(models.Model):
 
     class Meta:
         ordering = ["numeric_value"]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(numeric_value__gte=1, numeric_value__lte=8),
+                name="level_numeric_value_between_1_and_8",
+            ),
+        ]
 
     def __str__(self):
         return self.name
@@ -125,26 +179,56 @@ class Qualification(models.Model):
             models.Index(fields=["is_active", "title"]),
             models.Index(fields=["sector", "level", "is_active"]),
         ]
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(default_pass_boundary__gte=0, default_pass_boundary__lte=100)
+                    & models.Q(default_merit_boundary__gte=0, default_merit_boundary__lte=100)
+                    & models.Q(default_distinction_boundary__gte=0, default_distinction_boundary__lte=100)
+                ),
+                name="qualification_default_boundaries_0_to_100",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(default_pass_boundary__lt=models.F("default_merit_boundary"))
+                    & models.Q(default_merit_boundary__lt=models.F("default_distinction_boundary"))
+                ),
+                name="qualification_default_boundaries_ordered",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(min_bank_size__lte=models.F("recommended_bank_size")),
+                name="qualification_bank_size_ordered",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(resit_unseen_ratio__gte=Decimal("0.00"), resit_unseen_ratio__lte=Decimal("1.00")),
+                name="qualification_resit_unseen_ratio_0_to_1",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(resit_fail_margin_percent__gte=0, resit_fail_margin_percent__lte=100),
+                name="qualification_resit_fail_margin_0_to_100",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(default_questions_per_exam__gt=0, default_time_limit_minutes__gt=0),
+                name="qualification_exam_defaults_positive",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.code} — {self.title}"
 
     def save(self, *args, **kwargs):
         if not self.slug:
-            self.slug = slugify(f"{self.code}-{self.title}")[:50]
+            self.slug = _unique_slug(self, f"{self.code}-{self.title}")
         super().save(*args, **kwargs)
 
     def clean(self):
-        if not (self.default_pass_boundary
-                < self.default_merit_boundary
-                < self.default_distinction_boundary):
-            raise ValidationError(
-                "Grade boundaries must satisfy: pass < merit < distinction."
-            )
-        if self.min_bank_size > self.recommended_bank_size:
-            raise ValidationError(
-                "min_bank_size cannot exceed recommended_bank_size."
-            )
+        validate_qualification_business_rules(
+            default_pass_boundary=self.default_pass_boundary,
+            default_merit_boundary=self.default_merit_boundary,
+            default_distinction_boundary=self.default_distinction_boundary,
+            min_bank_size=self.min_bank_size,
+            recommended_bank_size=self.recommended_bank_size,
+        )
 
 
 # ────────────────────────────────────────────────────────────
@@ -167,9 +251,18 @@ class QualificationUnit(models.Model):
 
     class Meta:
         ordering = ["qualification", "sort_order"]
-        unique_together = ("qualification", "code")
         indexes = [
             models.Index(fields=["qualification", "sort_order"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["qualification", "code"],
+                name="unique_qualification_unit_code",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(weight__gt=0),
+                name="qualification_unit_weight_positive",
+            ),
         ]
 
     def __str__(self):
@@ -215,11 +308,16 @@ class QualificationEnrollment(models.Model):
 
     class Meta:
         ordering = ["-enrolled_at"]
-        unique_together = ("learner", "qualification", "cohort")
         indexes = [
             models.Index(fields=["learner", "status"]),
             models.Index(fields=["qualification", "status"]),
             models.Index(fields=["status", "-enrolled_at"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["learner", "qualification", "cohort"],
+                name="unique_qualification_enrollment_cohort",
+            ),
         ]
 
     def __str__(self):

@@ -34,7 +34,8 @@ from .serializers import (
 
 
 class QuestionViewSet(viewsets.ModelViewSet):
-    queryset = Question.objects.select_related("qualification").all()
+    # Serializer only emits the FK id; no select_related needed.
+    queryset = Question.objects.all()
     serializer_class = QuestionSerializer
     permission_classes = [IsAdminOrStaffReadOnly]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
@@ -67,16 +68,16 @@ class QuestionViewSet(viewsets.ModelViewSet):
         ser.is_valid(raise_exception=True)
         qualification_id = ser.validated_data["qualification_id"]
         items = ser.validated_data["questions"]
+        # Permission class guarantees auth.
+        creator = request.user
 
-        created = []
+        # One INSERT for the whole batch instead of N.
+        objs = [
+            Question(qualification_id=qualification_id, created_by=creator, **item)
+            for item in items
+        ]
         with transaction.atomic():
-            for item in items:
-                q = Question.objects.create(
-                    qualification_id=qualification_id,
-                    created_by=request.user if request.user.is_authenticated else None,
-                    **item,
-                )
-                created.append(q)
+            created = Question.objects.bulk_create(objs)
 
         return Response(
             {"imported": len(created), "ids": [str(q.id) for q in created]},
