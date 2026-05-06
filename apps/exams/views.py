@@ -42,8 +42,8 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 
-from questions.models import Question
-from users.models import User
+from apps.questions.models import Question
+from apps.users.models import User
 from .models import (
     ExamConfig, ExamSession, ExamResult,
     IntegrityViolation, RetakeRequest,

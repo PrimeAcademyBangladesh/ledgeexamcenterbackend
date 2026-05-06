@@ -9,7 +9,7 @@ Do not enable both at the same time.
 from rest_framework import serializers
 from django.utils import timezone
 
-from questions.models import Question
+from apps.questions.models import Question
 from .models import (
     ExamConfig, ExamSession, ExamResult,
     IntegrityViolation, RetakeRequest,

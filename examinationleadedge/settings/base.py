@@ -35,7 +35,6 @@ INSTALLED_APPS = [
     'apps.integrity',
     'apps.adjustments',
     'apps.settings_app',
-    'apps.examsession',
 ]
 
 MIDDLEWARE = [

@@ -14,7 +14,7 @@ from django.db import transaction
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
-from questions.models import Question
+from apps.questions.models import Question
 from .models import ExamConfig, ExamResult, ExamSession, LearnerSeenQuestion
 
 
