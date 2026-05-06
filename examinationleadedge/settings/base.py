@@ -182,9 +182,21 @@ SPECTACULAR_SETTINGS = {
         },
     },
     "ENUM_NAME_OVERRIDES": {
-        "QuestionType": ["single", "multiple"],
-        "EnrollmentStatus": ["active", "withdrawn", "completed", "suspended"],
-        "BankHealthStatus": ["healthy", "warning", "critical"],
+        "QuestionType": [
+            ("single", "Single answer"),
+            ("multiple", "Multiple answer"),
+        ],
+        "EnrollmentStatus": [
+            ("active", "Active"),
+            ("withdrawn", "Withdrawn"),
+            ("completed", "Completed"),
+            ("suspended", "Suspended"),
+        ],
+        "BankHealthStatus": [
+            ("healthy", "healthy"),
+            ("warning", "warning"),
+            ("critical", "critical"),
+        ],
     },
     "TAGS": [
         {
