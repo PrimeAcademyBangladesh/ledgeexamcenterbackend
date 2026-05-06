@@ -101,27 +101,28 @@ class Sector(models.Model):
 # ────────────────────────────────────────────────────────────
 #  Level (RQF)
 # ────────────────────────────────────────────────────────────
+
 class Level(models.Model):
+    STATUS_LEVEL = [
+        ("", "Select a Level"),
+        ("level-1", "Level 1"),
+        ("level-2", "Level 2"),
+        ("level-3", "Level 3"),
+        ("level-4", "Level 4"),
+        ("level-5", "Level 5"),
+        ("level-6", "Level 6"),
+        ("level-7", "Level 7"),
+    ]
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    name = models.CharField(max_length=80)
-    numeric_value = models.PositiveSmallIntegerField(
-        validators=[MinValueValidator(1), MaxValueValidator(8)],
-        db_index=True,
-    )
-    is_active = models.BooleanField(default=True, db_index=True)
+    name = models.CharField(max_length=80, choices=STATUS_LEVEL, unique=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     objects = LevelQuerySet.as_manager()
 
     class Meta:
-        ordering = ["numeric_value"]
-        constraints = [
-            models.CheckConstraint(
-                condition=models.Q(numeric_value__gte=1, numeric_value__lte=8),
-                name="level_numeric_value_between_1_and_8",
-            ),
-        ]
+        ordering = ["name"]
 
     def __str__(self):
         return self.name

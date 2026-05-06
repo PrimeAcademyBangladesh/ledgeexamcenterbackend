@@ -13,12 +13,35 @@ Two serializer classes:
 3. BulkImportSerializer — for POST /api/questions/bulk-import/.
 """
 
-from rest_framework import serializers
 from django.core.exceptions import ValidationError as DjangoValidationError
+from drf_spectacular.utils import OpenApiExample, extend_schema_serializer
+from rest_framework import serializers
 
 from .models import Question
 
 
+@extend_schema_serializer(
+    examples=[
+        OpenApiExample(
+            "Question Create",
+            value={
+                "qualification": "11111111-1111-1111-1111-111111111111",
+                "question_text": "What does EPAO stand for?",
+                "question_type": "single",
+                "options": [
+                    "End Point Assessment Organisation",
+                    "Education Provider Award Office",
+                    "External Performance Audit Office",
+                ],
+                "correct_answers": [0],
+                "explanation": "EPAO stands for End Point Assessment Organisation.",
+                "tags": ["epa", "terminology"],
+                "image_url": "",
+            },
+            request_only=True,
+        ),
+    ]
+)
 class QuestionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Question
@@ -38,8 +61,7 @@ class QuestionSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_at", "created_by"]
         extra_kwargs = {
-            # UI key is `qualificationId` — interceptor handles the casing.
-            "qualification": {"source": "qualification", "required": True},
+            "qualification": {"required": True},
         }
 
     def validate(self, attrs):
@@ -86,3 +108,8 @@ class BulkImportItemSerializer(serializers.Serializer):
 class BulkImportSerializer(serializers.Serializer):
     qualification_id = serializers.UUIDField()
     questions = BulkImportItemSerializer(many=True)
+
+
+class BulkImportResultSerializer(serializers.Serializer):
+    imported = serializers.IntegerField()
+    ids = serializers.ListField(child=serializers.UUIDField())

@@ -16,7 +16,7 @@ urlpatterns = [
     path('retakes/', include('apps.retakes.urls')),
     path('questions/', include('apps.questions.urls')),
     path('reports/', include('apps.reports.urls')),
-    path('qualifications/', include('apps.qualifications.urls')),
+    path('', include('apps.qualifications.urls')),
     path('exams/', include('apps.exams.urls')),
     path('integrity/', include('apps.integrity.urls')),
 ]

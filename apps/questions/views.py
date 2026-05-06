@@ -21,20 +21,97 @@ Frontend touchpoints:
 
 from django.db import transaction
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema, extend_schema_view
 from rest_framework import filters, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
+
+from core.schemas import DEFAULT_ERROR_RESPONSES, envelope_detail, envelope_list
 
 from .models import Question
 from .permissions import IsAdminOrStaffReadOnly
 from .serializers import (
     BulkImportSerializer,
+    BulkImportResultSerializer,
     QuestionSerializer,
 )
 
 
+QUESTION_QUALIFICATION_PARAM = OpenApiParameter(
+    name="qualification_id",
+    type=OpenApiTypes.UUID,
+    location=OpenApiParameter.QUERY,
+    required=False,
+    description="Filter questions by qualification UUID. Kept for frontend compatibility.",
+)
+
+
+@extend_schema_view(
+    list=extend_schema(
+        tags=["Question"],
+        summary="List questions",
+        parameters=[QUESTION_QUALIFICATION_PARAM],
+        responses={200: envelope_list(QuestionSerializer, message_example="Questions retrieved successfully."), **DEFAULT_ERROR_RESPONSES},
+    ),
+    retrieve=extend_schema(
+        tags=["Question"],
+        summary="Retrieve a question",
+        responses={200: envelope_detail(QuestionSerializer, message_example="Question retrieved successfully."), **DEFAULT_ERROR_RESPONSES},
+    ),
+    create=extend_schema(
+        tags=["Question"],
+        summary="Create a question",
+        request=QuestionSerializer,
+        responses={201: envelope_detail(QuestionSerializer, message_example="Question created successfully."), **DEFAULT_ERROR_RESPONSES},
+    ),
+    update=extend_schema(
+        tags=["Question"],
+        summary="Replace a question",
+        request=QuestionSerializer,
+        responses={200: envelope_detail(QuestionSerializer, message_example="Question updated successfully."), **DEFAULT_ERROR_RESPONSES},
+    ),
+    partial_update=extend_schema(
+        tags=["Question"],
+        summary="Partially update a question",
+        request=QuestionSerializer,
+        responses={200: envelope_detail(QuestionSerializer, message_example="Question updated successfully."), **DEFAULT_ERROR_RESPONSES},
+    ),
+    destroy=extend_schema(
+        tags=["Question"],
+        summary="Soft-delete a question",
+        description="Marks `is_active=false` so historical sessions and seen-question records remain valid.",
+        responses={204: None, **DEFAULT_ERROR_RESPONSES},
+    ),
+    bulk_import=extend_schema(
+        tags=["Question"],
+        summary="Bulk-import questions",
+        description=(
+            "Create many questions for a single qualification in one request. "
+            "The frontend can use this for CSV/JSON-assisted imports to avoid "
+            "N sequential create calls."
+        ),
+        request=BulkImportSerializer,
+        responses={
+            201: envelope_detail(BulkImportResultSerializer, message_example="Questions imported successfully."),
+            **DEFAULT_ERROR_RESPONSES,
+        },
+    ),
+)
 class QuestionViewSet(viewsets.ModelViewSet):
-    # Serializer only emits the FK id; no select_related needed.
+    """
+    Admin question-bank CRUD endpoint.
+
+    Frontend usage:
+      - `GET /api/questions/` drives the Admin Question Bank table and supports
+        the legacy `qualification_id` filter used by the current UI service.
+      - `POST/PATCH/PUT /api/questions/` use the same serializer shape for both
+        request and response.
+      - `DELETE /api/questions/{id}/` is a soft delete, so the frontend should
+        treat removal as archival rather than hard erasure.
+      - Learner exam flows do not consume this API directly; they use the
+        frozen session payload from the exams app instead.
+    """
+    # Serializer only emits FK/user primary keys; no select_related needed.
     queryset = Question.objects.all()
     serializer_class = QuestionSerializer
     permission_classes = [IsAdminOrStaffReadOnly]

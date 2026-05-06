@@ -88,6 +88,18 @@ def envelope_detail(data_serializer, *, message_example: str = "Operation comple
     )
 
 
+def envelope_array(data_serializer, *, message_example: str = "Records retrieved successfully."):
+    """Non-paginated list payload wrapped in the standard envelope."""
+    return inline_serializer(
+        name=_name(data_serializer, "EnvelopeArray"),
+        fields={
+            "success": serializers.BooleanField(default=True),
+            "message": serializers.CharField(default=message_example),
+            "data": _resolve_field(data_serializer),
+        },
+    )
+
+
 def envelope_list(data_serializer, *, message_example: str = "Records retrieved successfully."):
     """Paginated list payload — DRF PageNumberPagination wrapped in the envelope."""
     if isinstance(data_serializer, type):

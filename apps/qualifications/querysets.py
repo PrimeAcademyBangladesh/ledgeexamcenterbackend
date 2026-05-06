@@ -25,7 +25,7 @@ class SectorQuerySet(models.QuerySet):
 # ────────────────────────────────────────────────────────────
 class LevelQuerySet(models.QuerySet):
     def active(self):
-        return self.filter(is_active=True)
+        return self
 
 
 # ────────────────────────────────────────────────────────────
@@ -50,7 +50,7 @@ class QualificationQuerySet(models.QuerySet):
         return self.with_relations().with_question_count()
 
     def for_detail(self):
-        return self.with_relations().prefetch_related("units")
+        return self.with_relations().with_question_count().prefetch_related("units")
 
     def enrolled_by(self, user):
         return self.filter(

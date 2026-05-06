@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
-from drf_spectacular.utils import extend_schema_field, inline_serializer
+from drf_spectacular.utils import OpenApiExample, extend_schema_field, extend_schema_serializer, inline_serializer
 from rest_framework import serializers
 
 from .models import (
@@ -51,18 +51,19 @@ class SectorSerializer(serializers.ModelSerializer):
 #  Level
 # ────────────────────────────────────────────────────────────
 class LevelSerializer(serializers.ModelSerializer):
+    value = serializers.CharField(source="name", read_only=True)
+    label = serializers.CharField(source="get_name_display", read_only=True)
+
     class Meta:
         model = Level
-        fields = ["id", "name", "numeric_value", "is_active"]
-        read_only_fields = ["id"]
+        fields = ["id", "value", "label"]
+        read_only_fields = fields
 
 
 # ────────────────────────────────────────────────────────────
 #  QualificationUnit
 # ────────────────────────────────────────────────────────────
 class QualificationUnitSerializer(serializers.ModelSerializer):
-    # `question_count` requires `questions` reverse FK — use annotation when
-    # available, fall back to 0 (avoid per-row .count() N+1).
     question_count = serializers.IntegerField(read_only=True, default=0)
 
     class Meta:
@@ -134,13 +135,28 @@ class QualificationDetailSerializer(serializers.ModelSerializer):
         return qualification_bank_health(obj)
 
 
+@extend_schema_serializer(
+    examples=[
+        OpenApiExample(
+            "Qualification Create",
+            value={
+                "code": "L2-CUST-001",
+                "title": "Customer Service Practitioner",
+                "description": "Level 2 qualification",
+                "sector_id": "11111111-1111-1111-1111-111111111111",
+                "level_id": "22222222-2222-2222-2222-222222222222",
+            },
+            request_only=True,
+        ),
+    ]
+)
 class QualificationWriteSerializer(serializers.ModelSerializer):
     sector_id = serializers.PrimaryKeyRelatedField(
         queryset=Sector.objects.only("id", "is_active").filter(is_active=True),
         source="sector", write_only=True,
     )
     level_id = serializers.PrimaryKeyRelatedField(
-        queryset=Level.objects.only("id", "is_active").filter(is_active=True),
+        queryset=Level.objects.only("id"),
         source="level", write_only=True,
     )
 
@@ -157,6 +173,20 @@ class QualificationWriteSerializer(serializers.ModelSerializer):
             "max_resit_attempts", "resit_cooldown_days",
         ]
         read_only_fields = ["id"]
+        extra_kwargs = {
+            "is_active": {"required": False},
+            "default_questions_per_exam": {"required": False},
+            "default_time_limit_minutes": {"required": False},
+            "default_pass_boundary": {"required": False},
+            "default_merit_boundary": {"required": False},
+            "default_distinction_boundary": {"required": False},
+            "min_bank_size": {"required": False},
+            "recommended_bank_size": {"required": False},
+            "resit_unseen_ratio": {"required": False},
+            "resit_fail_margin_percent": {"required": False},
+            "max_resit_attempts": {"required": False},
+            "resit_cooldown_days": {"required": False},
+        }
 
     def validate(self, attrs):
         instance = self.instance

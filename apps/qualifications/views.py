@@ -12,11 +12,12 @@ from __future__ import annotations
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import (
     OpenApiParameter,
+    OpenApiResponse,
     OpenApiTypes,
     extend_schema,
     extend_schema_view,
 )
-from rest_framework import filters, generics, serializers as drf_serializers, viewsets
+from rest_framework import filters, generics, mixins, serializers as drf_serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import IsAuthenticated
@@ -155,58 +156,48 @@ class SectorViewSet(AuditLogMixin, viewsets.ModelViewSet):
     list=extend_schema(
         tags=[TAG_LEVEL],
         summary="List levels",
-        parameters=[INCLUDE_INACTIVE_PARAM],
-        responses={200: envelope_list(LevelSerializer, message_example="Levels retrieved successfully."), **DEFAULT_ERROR_RESPONSES},
-    ),
-    retrieve=extend_schema(
-        tags=[TAG_LEVEL],
-        summary="Retrieve a level",
-        responses={200: envelope_detail(LevelSerializer, message_example="Level retrieved successfully."), **DEFAULT_ERROR_RESPONSES},
-    ),
-    create=extend_schema(
-        tags=[TAG_LEVEL],
-        summary="Create a level",
-        request=LevelSerializer,
-        responses={201: envelope_detail(LevelSerializer, message_example="Level created successfully."), **DEFAULT_ERROR_RESPONSES},
-    ),
-    update=extend_schema(
-        tags=[TAG_LEVEL],
-        summary="Replace a level",
-        request=LevelSerializer,
-        responses={200: envelope_detail(LevelSerializer, message_example="Level updated successfully."), **DEFAULT_ERROR_RESPONSES},
-    ),
-    partial_update=extend_schema(
-        tags=[TAG_LEVEL],
-        summary="Partially update a level",
-        request=LevelSerializer,
-        responses={200: envelope_detail(LevelSerializer, message_example="Level updated successfully."), **DEFAULT_ERROR_RESPONSES},
-    ),
-    destroy=extend_schema(
-        tags=[TAG_LEVEL],
-        summary="Delete a level",
-        description="Hard-deletes a level. Fails with 409 if any qualification still references it.",
-        responses={204: None, **DEFAULT_ERROR_RESPONSES},
+        responses={
+            200: OpenApiResponse(
+                response={
+                    "type": "object",
+                    "properties": {
+                        "success": {"type": "boolean", "default": True},
+                        "message": {"type": "string", "default": "Levels retrieved successfully."},
+                        "data": {
+                            "type": "array",
+                            "items": {"$ref": "#/components/schemas/Level"},
+                        },
+                    },
+                    "required": ["success", "message", "data"],
+                },
+                description="Enveloped non-paginated level list.",
+            ),
+            **DEFAULT_ERROR_RESPONSES,
+        },
     ),
 )
-class LevelViewSet(AuditLogMixin, viewsets.ModelViewSet):
+class LevelViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     """
-    Why: Same pattern as SectorViewSet. Admin-managed RQF levels.
+    Read-only lookup endpoint for the fixed RQF level catalogue.
+
     Where:
-      - All admin forms that create/edit Qualifications.
-      - Reports filter dropdown (planned).
+      - `GET /api/levels/` powers the Qualification create/edit form dropdown.
+      - The frontend should treat `value` as the persisted code and `label`
+        as the human-readable option text.
+    Notes:
+      - This endpoint is intentionally non-paginated because the dataset is a
+        fixed small lookup list.
+      - `include_inactive` is ignored here because levels are static choices.
     """
     queryset = Level.objects.all()
     serializer_class = LevelSerializer
     permission_classes = [IsAdminOrReadOnlyForStaff]
-    filter_backends = [filters.OrderingFilter]
-    ordering = ["numeric_value"]
+    pagination_class = None
+    ordering = ["name"]
 
     def get_queryset(self):
         return selectors.level_list_qs(include_inactive=_include_inactive(self.request))
 
-    def perform_destroy(self, instance):
-        services.assert_level_deletable(instance)
-        super().perform_destroy(instance)
 
 
 # ────────────────────────────────────────────────────────────
@@ -228,19 +219,19 @@ class LevelViewSet(AuditLogMixin, viewsets.ModelViewSet):
         tags=[TAG_QUALIFICATION],
         summary="Create a qualification",
         request=QualificationWriteSerializer,
-        responses={201: envelope_detail(QualificationDetailSerializer, message_example="Qualification created successfully."), **DEFAULT_ERROR_RESPONSES},
+        responses={201: envelope_detail(QualificationWriteSerializer, message_example="Qualification created successfully."), **DEFAULT_ERROR_RESPONSES},
     ),
     update=extend_schema(
         tags=[TAG_QUALIFICATION],
         summary="Replace a qualification",
         request=QualificationWriteSerializer,
-        responses={200: envelope_detail(QualificationDetailSerializer, message_example="Qualification updated successfully."), **DEFAULT_ERROR_RESPONSES},
+        responses={200: envelope_detail(QualificationWriteSerializer, message_example="Qualification updated successfully."), **DEFAULT_ERROR_RESPONSES},
     ),
     partial_update=extend_schema(
         tags=[TAG_QUALIFICATION],
         summary="Partially update a qualification",
         request=QualificationWriteSerializer,
-        responses={200: envelope_detail(QualificationDetailSerializer, message_example="Qualification updated successfully."), **DEFAULT_ERROR_RESPONSES},
+        responses={200: envelope_detail(QualificationWriteSerializer, message_example="Qualification updated successfully."), **DEFAULT_ERROR_RESPONSES},
     ),
     destroy=extend_schema(
         tags=[TAG_QUALIFICATION],
@@ -250,15 +241,18 @@ class LevelViewSet(AuditLogMixin, viewsets.ModelViewSet):
 )
 class QualificationViewSet(SerializerByActionMixin, AuditLogMixin, viewsets.ModelViewSet):
     """
-    Why: Central catalogue. Read by every role; written only by admins.
-    Where (mapped to current React screens):
-      - GET  /api/qualifications/?is_active=true&page_size=200
-            → AdminExams.tsx, AdminLearners.tsx, AdminQuestionBank.tsx,
-              AdminReports.tsx — every dropdown.
-      - GET  /api/qualifications/{id}/
-            → AdminExams "Create Exam" form (pre-fills defaults from this payload)
-      - POST/PATCH/DELETE /api/qualifications/
-            → "Manage Qualifications" admin page (planned).
+    Qualification catalogue endpoint used across admin and learner surfaces.
+
+    Frontend usage:
+      - `GET /api/qualifications/` feeds admin dropdowns and tables. It is
+        paginated by default, so the UI should read `data.results`.
+      - `GET /api/qualifications/{id}/` provides the full admin detail payload
+        used to pre-fill edit forms.
+      - `POST/PATCH/PUT` accept the write serializer shape and currently return
+        the same write-oriented shape with server defaults materialised.
+      - Learner-facing screens must use `/api/me/qualifications/` instead of
+        this view to avoid exposing admin-only fields.
+
     Permissions:
       - Read: admin + invigilator. Learners go through /api/me/qualifications/
               (separate view, returns lean payload without resit fields).
@@ -314,11 +308,12 @@ class QualificationViewSet(SerializerByActionMixin, AuditLogMixin, viewsets.Mode
     @action(detail=True, methods=["get"], url_path="bank-health")
     def bank_health(self, request, pk=None):
         """
-        Why: AdminQuestionBank polls this every 30s while admins add questions.
-             Splitting it out means the heavy COUNT doesn't hit the detail
-             endpoint, which is cached.
-        Perf: the detail queryset prefetches sector/level/units which we don't
-             need here. Fetch only the three columns the health calc reads.
+        Lightweight polling endpoint for the question-bank meter in the admin
+        question editor.
+
+        The frontend can call this independently from qualification detail to
+        refresh the bank status without reloading units, sector, and level
+        metadata.
         """
         from django.shortcuts import get_object_or_404
         qual = get_object_or_404(
@@ -345,9 +340,11 @@ class QualificationViewSet(SerializerByActionMixin, AuditLogMixin, viewsets.Mode
     @action(detail=True, methods=["get"])
     def units(self, request, pk=None):
         """
-        GET /api/qualifications/{id}/units/ — used by question editor unit picker.
-        Perf: query units directly with DB-side ordering. Avoids loading the
-        parent qualification + its sector/level/units prefetch chain.
+        Return the unit list for a qualification in DB sort order.
+
+        Frontend usage:
+          - The question editor can call this to populate a qualification-
+            scoped unit picker without first fetching qualification detail.
         """
         # Object-level perms here are class-wide (admin vs staff read), so a
         # bare existence check is enough to enforce the permission contract.

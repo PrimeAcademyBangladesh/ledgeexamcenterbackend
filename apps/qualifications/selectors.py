@@ -33,10 +33,7 @@ def sector_list_qs(*, include_inactive: bool = False):
 #  Level
 # ────────────────────────────────────────────────────────────
 def level_list_qs(*, include_inactive: bool = False):
-    qs = Level.objects.all()
-    if not include_inactive:
-        qs = qs.active()
-    return qs
+    return Level.objects.all()
 
 
 # ────────────────────────────────────────────────────────────
@@ -71,7 +68,9 @@ def qualification_bank_health(qualification: Qualification) -> dict:
     Single computed dict reused by serializer + @action endpoint.
     Issues exactly one COUNT query.
     """
-    if hasattr(qualification, "questions"):
+    if hasattr(qualification, "question_count"):
+        total = qualification.question_count or 0
+    elif hasattr(qualification, "questions"):
         total = qualification.questions.filter(is_active=True).count()
     else:
         total = 0
