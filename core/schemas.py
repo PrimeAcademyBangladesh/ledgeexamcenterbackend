@@ -135,17 +135,26 @@ def envelope_list(data_serializer, *, message_example: str = "Records retrieved 
     )
 
 
-def envelope_action(fields: dict, *, name: str, message_example: str = "Operation completed successfully."):
+def envelope_action(
+    fields: dict,
+    *,
+    name: str,
+    many: bool = False,
+    message_example: str = "Operation completed successfully.",
+):
     """
     Custom @action endpoint (no model serializer behind it).
     Pass a dict of {field_name: drf_field} for the data shape.
     """
+    data_schema = inline_serializer(name=f"{name}Data", fields=fields)
+    if many:
+        data_schema = serializers.ListSerializer(child=data_schema)
     return inline_serializer(
         name=f"{name}Envelope",
         fields={
             "success": serializers.BooleanField(default=True),
             "message": serializers.CharField(default=message_example),
-            "data": inline_serializer(name=f"{name}Data", fields=fields),
+            "data": data_schema,
         },
     )
 

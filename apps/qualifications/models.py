@@ -143,7 +143,7 @@ class Qualification(models.Model):
     level = models.ForeignKey(
         Level, on_delete=models.PROTECT, related_name="qualifications"
     )
-    description = models.TextField(blank=True)
+    description = models.TextField(blank=True, null=True)
     is_active = models.BooleanField(default=True, db_index=True)
 
     default_questions_per_exam = models.PositiveIntegerField(default=40)

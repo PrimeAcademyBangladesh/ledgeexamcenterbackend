@@ -68,7 +68,6 @@ INCLUDE_INACTIVE_PARAM = OpenApiParameter(
     description="If `true`, include rows where `is_active=false`. Defaults to false.",
 )
 
-
 # ────────────────────────────────────────────────────────────
 #  Tag constants — match drf-spectacular `tags=[...]` everywhere
 # ────────────────────────────────────────────────────────────
@@ -87,30 +86,35 @@ TAG_ENROLLMENT = "Qualification Enrollment"
         tags=[TAG_SECTOR],
         summary="List sectors",
         parameters=[INCLUDE_INACTIVE_PARAM],
-        responses={200: envelope_list(SectorSerializer, message_example="Sectors retrieved successfully."), **DEFAULT_ERROR_RESPONSES},
+        responses={200: envelope_list(SectorSerializer, message_example="Sectors retrieved successfully."),
+                   **DEFAULT_ERROR_RESPONSES},
     ),
     retrieve=extend_schema(
         tags=[TAG_SECTOR],
         summary="Retrieve a sector",
-        responses={200: envelope_detail(SectorSerializer, message_example="Sector retrieved successfully."), **DEFAULT_ERROR_RESPONSES},
+        responses={200: envelope_detail(SectorSerializer, message_example="Sector retrieved successfully."),
+                   **DEFAULT_ERROR_RESPONSES},
     ),
     create=extend_schema(
         tags=[TAG_SECTOR],
         summary="Create a sector",
         request=SectorSerializer,
-        responses={201: envelope_detail(SectorSerializer, message_example="Sector created successfully."), **DEFAULT_ERROR_RESPONSES},
+        responses={201: envelope_detail(SectorSerializer, message_example="Sector created successfully."),
+                   **DEFAULT_ERROR_RESPONSES},
     ),
     update=extend_schema(
         tags=[TAG_SECTOR],
         summary="Replace a sector",
         request=SectorSerializer,
-        responses={200: envelope_detail(SectorSerializer, message_example="Sector updated successfully."), **DEFAULT_ERROR_RESPONSES},
+        responses={200: envelope_detail(SectorSerializer, message_example="Sector updated successfully."),
+                   **DEFAULT_ERROR_RESPONSES},
     ),
     partial_update=extend_schema(
         tags=[TAG_SECTOR],
         summary="Partially update a sector",
         request=SectorSerializer,
-        responses={200: envelope_detail(SectorSerializer, message_example="Sector updated successfully."), **DEFAULT_ERROR_RESPONSES},
+        responses={200: envelope_detail(SectorSerializer, message_example="Sector updated successfully."),
+                   **DEFAULT_ERROR_RESPONSES},
     ),
     destroy=extend_schema(
         tags=[TAG_SECTOR],
@@ -199,7 +203,6 @@ class LevelViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         return selectors.level_list_qs(include_inactive=_include_inactive(self.request))
 
 
-
 # ────────────────────────────────────────────────────────────
 #  Qualification
 # ────────────────────────────────────────────────────────────
@@ -208,30 +211,40 @@ class LevelViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         tags=[TAG_QUALIFICATION],
         summary="List qualifications",
         parameters=[INCLUDE_INACTIVE_PARAM],
-        responses={200: envelope_list(QualificationListSerializer, message_example="Qualifications retrieved successfully."), **DEFAULT_ERROR_RESPONSES},
+        responses={
+            200: envelope_list(QualificationListSerializer, message_example="Qualifications retrieved successfully."),
+            **DEFAULT_ERROR_RESPONSES},
     ),
     retrieve=extend_schema(
         tags=[TAG_QUALIFICATION],
         summary="Retrieve a qualification",
-        responses={200: envelope_detail(QualificationDetailSerializer, message_example="Qualification retrieved successfully."), **DEFAULT_ERROR_RESPONSES},
+        responses={200: envelope_detail(QualificationDetailSerializer,
+                                        message_example="Qualification retrieved successfully."),
+                   **DEFAULT_ERROR_RESPONSES},
     ),
     create=extend_schema(
         tags=[TAG_QUALIFICATION],
         summary="Create a qualification",
         request=QualificationWriteSerializer,
-        responses={201: envelope_detail(QualificationWriteSerializer, message_example="Qualification created successfully."), **DEFAULT_ERROR_RESPONSES},
+        responses={
+            201: envelope_detail(QualificationWriteSerializer, message_example="Qualification created successfully."),
+            **DEFAULT_ERROR_RESPONSES},
     ),
     update=extend_schema(
         tags=[TAG_QUALIFICATION],
         summary="Replace a qualification",
         request=QualificationWriteSerializer,
-        responses={200: envelope_detail(QualificationWriteSerializer, message_example="Qualification updated successfully."), **DEFAULT_ERROR_RESPONSES},
+        responses={
+            200: envelope_detail(QualificationWriteSerializer, message_example="Qualification updated successfully."),
+            **DEFAULT_ERROR_RESPONSES},
     ),
     partial_update=extend_schema(
         tags=[TAG_QUALIFICATION],
         summary="Partially update a qualification",
         request=QualificationWriteSerializer,
-        responses={200: envelope_detail(QualificationWriteSerializer, message_example="Qualification updated successfully."), **DEFAULT_ERROR_RESPONSES},
+        responses={
+            200: envelope_detail(QualificationWriteSerializer, message_example="Qualification updated successfully."),
+            **DEFAULT_ERROR_RESPONSES},
     ),
     destroy=extend_schema(
         tags=[TAG_QUALIFICATION],
@@ -357,6 +370,56 @@ class QualificationViewSet(SerializerByActionMixin, AuditLogMixin, viewsets.Mode
             message="Units retrieved successfully.",
         )
 
+    @extend_schema(
+        tags=[TAG_QUALIFICATION],
+        summary="Qualification dropdown list",
+        responses={
+            200: envelope_action(
+                {
+                    "id": drf_serializers.IntegerField(),
+                    "title": drf_serializers.CharField(),
+                },
+                many=True,
+                name="QualificationDropdown",
+                message_example="Qualification dropdown retrieved successfully.",
+            ),
+            **DEFAULT_ERROR_RESPONSES,
+        },
+    )
+    @action(detail=False, methods=["get"], url_path="dropdown")
+    def dropdown(self, request):
+        """
+        Lightweight qualification dropdown endpoint.
+
+        Returns only:
+          - id
+          - title
+
+        Frontend usage:
+          - Select dropdowns
+          - React select
+          - Autocomplete
+        """
+        queryset = (
+            Qualification.objects
+            .filter(is_active=True)
+            .only("id", "title")
+            .order_by("title")
+        )
+
+        data = [
+            {
+                "id": item.id,
+                "title": item.title,
+            }
+            for item in queryset
+        ]
+
+        return APIResponse.ok(
+            data=data,
+            message="Qualification dropdown retrieved successfully.",
+        )
+
 
 @extend_schema(
     tags=[TAG_QUALIFICATION],
@@ -392,30 +455,35 @@ class MyQualificationsView(generics.ListAPIView):
     list=extend_schema(
         tags=[TAG_UNIT],
         summary="List qualification units",
-        responses={200: envelope_list(QualificationUnitSerializer, message_example="Units retrieved successfully."), **DEFAULT_ERROR_RESPONSES},
+        responses={200: envelope_list(QualificationUnitSerializer, message_example="Units retrieved successfully."),
+                   **DEFAULT_ERROR_RESPONSES},
     ),
     retrieve=extend_schema(
         tags=[TAG_UNIT],
         summary="Retrieve a qualification unit",
-        responses={200: envelope_detail(QualificationUnitSerializer, message_example="Unit retrieved successfully."), **DEFAULT_ERROR_RESPONSES},
+        responses={200: envelope_detail(QualificationUnitSerializer, message_example="Unit retrieved successfully."),
+                   **DEFAULT_ERROR_RESPONSES},
     ),
     create=extend_schema(
         tags=[TAG_UNIT],
         summary="Create a qualification unit",
         request=QualificationUnitSerializer,
-        responses={201: envelope_detail(QualificationUnitSerializer, message_example="Unit created successfully."), **DEFAULT_ERROR_RESPONSES},
+        responses={201: envelope_detail(QualificationUnitSerializer, message_example="Unit created successfully."),
+                   **DEFAULT_ERROR_RESPONSES},
     ),
     update=extend_schema(
         tags=[TAG_UNIT],
         summary="Replace a qualification unit",
         request=QualificationUnitSerializer,
-        responses={200: envelope_detail(QualificationUnitSerializer, message_example="Unit updated successfully."), **DEFAULT_ERROR_RESPONSES},
+        responses={200: envelope_detail(QualificationUnitSerializer, message_example="Unit updated successfully."),
+                   **DEFAULT_ERROR_RESPONSES},
     ),
     partial_update=extend_schema(
         tags=[TAG_UNIT],
         summary="Partially update a qualification unit",
         request=QualificationUnitSerializer,
-        responses={200: envelope_detail(QualificationUnitSerializer, message_example="Unit updated successfully."), **DEFAULT_ERROR_RESPONSES},
+        responses={200: envelope_detail(QualificationUnitSerializer, message_example="Unit updated successfully."),
+                   **DEFAULT_ERROR_RESPONSES},
     ),
     destroy=extend_schema(
         tags=[TAG_UNIT],
@@ -456,30 +524,35 @@ class QualificationUnitViewSet(AuditLogMixin, viewsets.ModelViewSet):
     list=extend_schema(
         tags=[TAG_ENROLLMENT],
         summary="List enrolments",
-        responses={200: envelope_list(EnrollmentReadSerializer, message_example="Enrolments retrieved successfully."), **DEFAULT_ERROR_RESPONSES},
+        responses={200: envelope_list(EnrollmentReadSerializer, message_example="Enrolments retrieved successfully."),
+                   **DEFAULT_ERROR_RESPONSES},
     ),
     retrieve=extend_schema(
         tags=[TAG_ENROLLMENT],
         summary="Retrieve an enrolment",
-        responses={200: envelope_detail(EnrollmentReadSerializer, message_example="Enrolment retrieved successfully."), **DEFAULT_ERROR_RESPONSES},
+        responses={200: envelope_detail(EnrollmentReadSerializer, message_example="Enrolment retrieved successfully."),
+                   **DEFAULT_ERROR_RESPONSES},
     ),
     create=extend_schema(
         tags=[TAG_ENROLLMENT],
         summary="Create an enrolment",
         request=EnrollmentWriteSerializer,
-        responses={201: envelope_detail(EnrollmentReadSerializer, message_example="Enrolment created successfully."), **DEFAULT_ERROR_RESPONSES},
+        responses={201: envelope_detail(EnrollmentReadSerializer, message_example="Enrolment created successfully."),
+                   **DEFAULT_ERROR_RESPONSES},
     ),
     update=extend_schema(
         tags=[TAG_ENROLLMENT],
         summary="Replace an enrolment",
         request=EnrollmentWriteSerializer,
-        responses={200: envelope_detail(EnrollmentReadSerializer, message_example="Enrolment updated successfully."), **DEFAULT_ERROR_RESPONSES},
+        responses={200: envelope_detail(EnrollmentReadSerializer, message_example="Enrolment updated successfully."),
+                   **DEFAULT_ERROR_RESPONSES},
     ),
     partial_update=extend_schema(
         tags=[TAG_ENROLLMENT],
         summary="Partially update an enrolment",
         request=EnrollmentWriteSerializer,
-        responses={200: envelope_detail(EnrollmentReadSerializer, message_example="Enrolment updated successfully."), **DEFAULT_ERROR_RESPONSES},
+        responses={200: envelope_detail(EnrollmentReadSerializer, message_example="Enrolment updated successfully."),
+                   **DEFAULT_ERROR_RESPONSES},
     ),
     destroy=extend_schema(
         tags=[TAG_ENROLLMENT],
@@ -558,10 +631,10 @@ class MyEnrollmentsView(generics.ListAPIView):
     tags=[TAG_ENROLLMENT],
     summary="Bulk-import enrolments from a CSV file",
     description=(
-        "Accepts a multipart/form-data CSV. Required columns: "
-        "`learner_id, qualification_id, cohort, enrolled_at`. "
-        "Optional: `employer, status, expected_end_date, notes`. "
-        "The natural key `(learner_id, qualification_id, cohort)` is upserted."
+            "Accepts a multipart/form-data CSV. Required columns: "
+            "`learner_id, qualification_id, cohort, enrolled_at`. "
+            "Optional: `employer, status, expected_end_date, notes`. "
+            "The natural key `(learner_id, qualification_id, cohort)` is upserted."
     ),
     request={
         "multipart/form-data": {
