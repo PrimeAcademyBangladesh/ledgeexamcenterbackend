@@ -36,7 +36,6 @@ from .models import Question
                 "correct_answers": [0],
                 "explanation": "EPAO stands for End Point Assessment Organisation.",
                 "tags": ["epa", "terminology"],
-                "image_url": "",
             },
             request_only=True,
         ),
@@ -54,7 +53,6 @@ class QuestionSerializer(serializers.ModelSerializer):
             "correct_answers",
             "explanation",
             "tags",
-            "image_url",
             "is_active",
             "created_at",
             "created_by",
@@ -90,7 +88,6 @@ class ExamQuestionSerializer(serializers.ModelSerializer):
             "question_text",
             "question_type",
             "options",
-            "image_url",
         ]
         read_only_fields = fields
 
@@ -102,7 +99,6 @@ class BulkImportItemSerializer(serializers.Serializer):
     correct_answers = serializers.ListField(child=serializers.IntegerField(min_value=0))
     explanation = serializers.CharField(required=False, allow_blank=True, default="")
     tags = serializers.ListField(child=serializers.CharField(), required=False, default=list)
-    image_url = serializers.URLField(required=False, allow_blank=True, default="")
 
 
 class BulkImportSerializer(serializers.Serializer):

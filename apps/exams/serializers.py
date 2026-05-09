@@ -80,7 +80,7 @@ class ExamConfigSerializer(serializers.ModelSerializer):
 class ExamQuestionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Question
-        fields = ["id", "question_text", "question_type", "options", "image_url"]
+        fields = ["id", "question_text", "question_type", "options"]
 
 
 # ---------------------------------------------------------------------------

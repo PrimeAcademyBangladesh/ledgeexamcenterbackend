@@ -37,11 +37,11 @@ class Question(models.Model):
     question_type = models.CharField(
         max_length=10, choices=QUESTION_TYPE_CHOICES, default="single"
     )
-    options = models.JSONField(default=list)            # list[str]
-    correct_answers = models.JSONField(default=list)    # list[int]  (indexes)
+    options = models.JSONField(default=list)
+    correct_answers = models.JSONField(default=list)
     explanation = models.TextField(blank=True, default="")
-    tags = models.JSONField(default=list, blank=True)   # list[str]
-    image_url = models.URLField(blank=True, default="")
+    tags = models.JSONField(default=list, blank=True)
+    image_qs = models.ImageField(upload_to="questions/images/", blank=True, null=True)
 
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
