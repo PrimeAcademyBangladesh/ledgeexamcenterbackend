@@ -13,8 +13,14 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from drf_spectacular.utils import OpenApiTypes, inline_serializer
+from drf_spectacular.utils import OpenApiTypes, extend_schema_serializer, inline_serializer
 from rest_framework import serializers
+
+
+def _inline_singular_serializer(name: str, fields: dict):
+    serializer_class = type(name, (serializers.Serializer,), fields)
+    extend_schema_serializer(many=False)(serializer_class)
+    return serializer_class()
 
 
 # ────────────────────────────────────────────────────────────
@@ -73,7 +79,7 @@ def _envelope_list_class(data_serializer_cls):
             "results": data_serializer_cls(many=True),
         },
     )
-    return inline_serializer(
+    return _inline_singular_serializer(
         name=f"{base}EnvelopeList",
         fields={
             "success": serializers.BooleanField(default=True),
@@ -125,7 +131,7 @@ def envelope_list(data_serializer, *, message_example: str = "Records retrieved 
             "results": _resolve_field(data_serializer),
         },
     )
-    return inline_serializer(
+    return _inline_singular_serializer(
         name=name,
         fields={
             "success": serializers.BooleanField(default=True),
