@@ -38,10 +38,11 @@ from rest_framework import generics, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from drf_spectacular.utils import extend_schema, OpenApiParameter
+from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter
 
 from core.responses import APIResponse
 from core.email import send_email
+from core.schemas import DEFAULT_ERROR_RESPONSES, EmptyEnvelope, envelope_array, envelope_detail, envelope_list
 
 from apps.users.models import LearnerProfile, Role
 
@@ -63,7 +64,15 @@ from .filters import LearnerFilter
 # Learners
 # ─────────────────────────────────────────────────────────────
 
-@extend_schema(tags=["Learners"])
+@extend_schema_view(
+    list=extend_schema(tags=["Learners"], responses={200: envelope_list(LearnerSerializer), **DEFAULT_ERROR_RESPONSES}),
+    retrieve=extend_schema(tags=["Learners"], responses={200: envelope_detail(LearnerSerializer), **DEFAULT_ERROR_RESPONSES}),
+    create=extend_schema(tags=["Learners"], request=RegisterLearnerSerializer, responses={201: envelope_detail(LearnerSerializer), **DEFAULT_ERROR_RESPONSES}),
+    partial_update=extend_schema(tags=["Learners"], request=UpdateLearnerSerializer, responses={200: envelope_detail(LearnerSerializer), **DEFAULT_ERROR_RESPONSES}),
+    activate=extend_schema(tags=["Learners"], responses={200: EmptyEnvelope, **DEFAULT_ERROR_RESPONSES}),
+    deactivate=extend_schema(tags=["Learners"], responses={200: EmptyEnvelope, **DEFAULT_ERROR_RESPONSES}),
+    resend_welcome=extend_schema(tags=["Learners"], responses={200: EmptyEnvelope, **DEFAULT_ERROR_RESPONSES}),
+)
 class LearnerViewSet(viewsets.GenericViewSet):
     """
     URL key is the learner's `user_id` (UUID) — matches what the React
@@ -164,7 +173,7 @@ class LearnerViewSet(viewsets.GenericViewSet):
         return APIResponse.ok(message="Welcome email re-sent")
 
 
-@extend_schema(tags=["Learners"])
+@extend_schema(tags=["Learners"], responses={200: envelope_detail(LearnerSerializer), **DEFAULT_ERROR_RESPONSES})
 class LearnerByUlnView(generics.RetrieveAPIView):
     """Invigilator ID-verification step."""
     serializer_class = LearnerSerializer
@@ -181,7 +190,13 @@ class LearnerByUlnView(generics.RetrieveAPIView):
 # Enrollments
 # ─────────────────────────────────────────────────────────────
 
-@extend_schema(tags=["Enrollments"])
+@extend_schema_view(
+    list=extend_schema(tags=["Enrollments"], responses={200: envelope_array(EnrollmentSerializer, many=True), **DEFAULT_ERROR_RESPONSES}),
+    retrieve=extend_schema(tags=["Enrollments"], responses={200: envelope_detail(EnrollmentSerializer), **DEFAULT_ERROR_RESPONSES}),
+    create=extend_schema(tags=["Enrollments"], request=CreateEnrollmentSerializer, responses={201: envelope_detail(EnrollmentSerializer), **DEFAULT_ERROR_RESPONSES}),
+    partial_update=extend_schema(tags=["Enrollments"], responses={200: envelope_detail(EnrollmentSerializer), **DEFAULT_ERROR_RESPONSES}),
+    destroy=extend_schema(tags=["Enrollments"], responses={204: None, **DEFAULT_ERROR_RESPONSES}),
+)
 class EnrollmentViewSet(viewsets.ModelViewSet):
     queryset = Enrollment.objects.select_related("learner__user", "qualification")
     permission_classes = [IsAdmin]
@@ -210,7 +225,7 @@ class EnrollmentViewSet(viewsets.ModelViewSet):
         )
 
 
-@extend_schema(tags=["Enrollments"])
+@extend_schema(tags=["Enrollments"], responses={200: envelope_array(EnrollmentSerializer, many=True), **DEFAULT_ERROR_RESPONSES})
 class MyEnrollmentsView(generics.ListAPIView):
     """GET /api/me/enrollments/ — used by LearnerDashboard.tsx"""
     serializer_class = EnrollmentSerializer
@@ -232,7 +247,13 @@ class MyEnrollmentsView(generics.ListAPIView):
 # Reasonable Adjustments
 # ─────────────────────────────────────────────────────────────
 
-@extend_schema(tags=["Reasonable Adjustments"])
+@extend_schema_view(
+    list=extend_schema(tags=["Reasonable Adjustments"], responses={200: envelope_array(ReasonableAdjustmentSerializer, many=True), **DEFAULT_ERROR_RESPONSES}),
+    retrieve=extend_schema(tags=["Reasonable Adjustments"], responses={200: envelope_detail(ReasonableAdjustmentSerializer), **DEFAULT_ERROR_RESPONSES}),
+    create=extend_schema(tags=["Reasonable Adjustments"], request=CreateReasonableAdjustmentSerializer, responses={201: envelope_detail(ReasonableAdjustmentSerializer), **DEFAULT_ERROR_RESPONSES}),
+    partial_update=extend_schema(tags=["Reasonable Adjustments"], responses={200: envelope_detail(ReasonableAdjustmentSerializer), **DEFAULT_ERROR_RESPONSES}),
+    destroy=extend_schema(tags=["Reasonable Adjustments"], responses={204: None, **DEFAULT_ERROR_RESPONSES}),
+)
 class ReasonableAdjustmentViewSet(viewsets.ModelViewSet):
     queryset = ReasonableAdjustment.objects.select_related("learner__user")
     permission_classes = [IsAdmin]

@@ -13,6 +13,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from drf_spectacular.utils import extend_schema
 
 from core.responses import APIResponse
+from core.schemas import DEFAULT_ERROR_RESPONSES, EmptyEnvelope, envelope_detail
 
 from apps.users.models import Role
 from apps.users.serializers import (
@@ -20,7 +21,7 @@ from apps.users.serializers import (
     ChangePasswordSerializer,
     ForgotPasswordSerializer,
     ResetPasswordSerializer,
-    MeResponseSerializer,
+    MePayloadSerializer,
     LoginResponseSerializer,
     LogoutSerializer,
 )
@@ -30,7 +31,7 @@ from core.email import send_email
 @extend_schema(
     tags=["Authentication"],
     request=LoginSerializer,
-    responses=LoginResponseSerializer,
+    responses={200: envelope_detail(LoginResponseSerializer), **DEFAULT_ERROR_RESPONSES},
 )
 class LoginView(TokenObtainPairView):
     serializer_class = LoginSerializer
@@ -40,7 +41,7 @@ class LoginView(TokenObtainPairView):
 
 @extend_schema(
     tags=["Authentication"],
-    responses=MeResponseSerializer,
+    responses={200: envelope_detail(MePayloadSerializer), **DEFAULT_ERROR_RESPONSES},
 )
 class MeView(generics.GenericAPIView):
     permission_classes = [IsAuthenticated]
@@ -88,7 +89,7 @@ class MeView(generics.GenericAPIView):
 @extend_schema(
     tags=["Authentication"],
     request=ChangePasswordSerializer,
-    responses={200: {"type": "object"}},
+    responses={200: EmptyEnvelope, **DEFAULT_ERROR_RESPONSES},
 )
 class ChangePasswordView(generics.GenericAPIView):
     permission_classes = [IsAuthenticated]
@@ -127,7 +128,7 @@ class ChangePasswordView(generics.GenericAPIView):
 @extend_schema(
     tags=["Authentication"],
     request=ForgotPasswordSerializer,
-    responses={200: {"type": "object"}},
+    responses={200: EmptyEnvelope, **DEFAULT_ERROR_RESPONSES},
 )
 class ForgotPasswordView(generics.GenericAPIView):
     permission_classes = [AllowAny]
@@ -164,7 +165,7 @@ class ForgotPasswordView(generics.GenericAPIView):
 @extend_schema(
     tags=["Authentication"],
     request=ResetPasswordSerializer,
-    responses={200: {"type": "object"}},
+    responses={200: EmptyEnvelope, **DEFAULT_ERROR_RESPONSES},
 )
 class ResetPasswordView(generics.GenericAPIView):
     permission_classes = [AllowAny]
@@ -190,7 +191,7 @@ class ResetPasswordView(generics.GenericAPIView):
 @extend_schema(
     tags=["Authentication"],
     request=LogoutSerializer,
-    responses={200: {"type": "object"}},
+    responses={200: EmptyEnvelope, **DEFAULT_ERROR_RESPONSES},
 )
 class LogoutView(generics.GenericAPIView):
     permission_classes = [IsAuthenticated]

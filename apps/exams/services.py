@@ -151,10 +151,8 @@ def score_submission(*, session: ExamSession, answers: list[dict]) -> dict:
     """
     cfg = session.exam_config
     questions = {
-        str(q.id): q for q in
-        __import__("questions").models.Question.objects.filter(
-            id__in=session.question_set
-        )
+        str(q.id): q
+        for q in Question.objects.filter(id__in=session.question_set)
     }
 
     correct = 0

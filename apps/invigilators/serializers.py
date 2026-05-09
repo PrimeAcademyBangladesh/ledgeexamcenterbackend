@@ -69,19 +69,22 @@ class InvigilatorSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "createdAt", "providerName", "assignedSessionCount"]
 
     # ----- helpers -----
-    def _staff_profile(self, obj) -> StaffProfile | None:
-        return getattr(obj, "staff_profile", None)
+    def _primary_link(self, obj) -> InvigilatorProviderLink | None:
+        return (
+            obj.provider_links
+            .filter(ended_at__isnull=True)
+            .select_related("provider")
+            .order_by("-is_primary", "provider__name")
+            .first()
+        )
 
     def get_providerCode(self, obj) -> str:
-        sp = self._staff_profile(obj)
-        return getattr(sp, "provider_code", "") if sp else ""
+        link = self._primary_link(obj)
+        return link.provider.code if link else ""
 
     def get_providerName(self, obj) -> str:
-        sp = self._staff_profile(obj)
-        if not sp or not getattr(sp, "provider_code", ""):
-            return ""
-        prov = ProviderCentre.objects.filter(code=sp.provider_code).first()
-        return prov.name if prov else ""
+        link = self._primary_link(obj)
+        return link.provider.name if link else ""
 
     def get_assignedSessionCount(self, obj) -> int:
         # Lazy import — avoids circular import with apps.exams.
@@ -121,6 +124,12 @@ class RegisterInvigilatorSerializer(serializers.Serializer):
     # ---- create ----
     @transaction.atomic
     def create(self, validated):
+        provider = ProviderCentre.objects.filter(code=validated["providerCode"]).first()
+        if not provider:
+            raise serializers.ValidationError(
+                {"providerCode": f"No provider centre with code {validated['providerCode']}."}
+            )
+
         user = User.objects.create_user(
             email=validated["email"],
             password=validated["password"],
@@ -129,17 +138,12 @@ class RegisterInvigilatorSerializer(serializers.Serializer):
             role=Role.INVIGILATOR,
             is_active=True,
         )
-        # StaffProfile is created by the post_save signal.
-        staff = StaffProfile.objects.get(user=user)
-        staff.provider_code = validated["providerCode"]
-        staff.save(update_fields=["provider_code"])
+        # StaffProfile is created by the post_save signal; nothing extra to set.
+        StaffProfile.objects.get_or_create(user=user)
 
-        # Best-effort link to a ProviderCentre row if one already exists.
-        provider = ProviderCentre.objects.filter(code=validated["providerCode"]).first()
-        if provider:
-            InvigilatorProviderLink.objects.create(
-                user=user, provider=provider, is_primary=True
-            )
+        InvigilatorProviderLink.objects.create(
+            user=user, provider=provider, is_primary=True
+        )
 
         # TODO (post-MVP): trigger welcome email with one-time password reset link.
         return user
@@ -178,9 +182,25 @@ class UpdateInvigilatorSerializer(serializers.Serializer):
         instance.save()
 
         if "providerCode" in validated:
-            sp, _ = StaffProfile.objects.get_or_create(user=instance)
-            sp.provider_code = validated["providerCode"].strip().upper()
-            sp.save(update_fields=["provider_code"])
+            code = validated["providerCode"].strip().upper()
+            provider = ProviderCentre.objects.filter(code=code).first()
+            if not provider:
+                raise serializers.ValidationError(
+                    {"providerCode": f"No provider centre with code {code}."}
+                )
+            # Mark previous primary link inactive (if it points elsewhere) and
+            # upsert the link to the requested provider.
+            InvigilatorProviderLink.objects.filter(
+                user=instance, is_primary=True, ended_at__isnull=True,
+            ).exclude(provider=provider).update(is_primary=False)
+            link, created = InvigilatorProviderLink.objects.get_or_create(
+                user=instance, provider=provider,
+                defaults={"is_primary": True},
+            )
+            if not created:
+                link.is_primary = True
+                link.ended_at = None
+                link.save(update_fields=["is_primary", "ended_at"])
 
         return instance
 

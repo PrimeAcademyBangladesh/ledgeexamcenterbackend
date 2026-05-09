@@ -53,6 +53,7 @@ class QuestionSerializer(serializers.ModelSerializer):
             "correct_answers",
             "explanation",
             "tags",
+            "image_qs",
             "is_active",
             "created_at",
             "created_by",
@@ -60,11 +61,28 @@ class QuestionSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at", "created_by"]
         extra_kwargs = {
             "qualification": {"required": True},
+            "image_qs": {"required": False, "allow_null": True},
         }
 
     def validate(self, attrs):
-        # Run model-level invariants without persisting.
-        instance = Question(**{k: v for k, v in attrs.items() if k != "qualification"})
+        # Run model-level invariants without persisting. For partial updates,
+        # merge incoming values onto the existing instance so image-only PATCH
+        # requests do not fail due to unrelated required fields missing.
+        payload = {}
+        if self.instance is not None:
+            payload = {
+                "question_text": self.instance.question_text,
+                "question_type": self.instance.question_type,
+                "options": self.instance.options,
+                "correct_answers": self.instance.correct_answers,
+                "explanation": self.instance.explanation,
+                "tags": self.instance.tags,
+                "image_qs": self.instance.image_qs,
+                "is_active": self.instance.is_active,
+                "created_by": self.instance.created_by,
+            }
+        payload.update({k: v for k, v in attrs.items() if k != "qualification"})
+        instance = Question(**payload)
         try:
             instance.validate_payload()
         except DjangoValidationError as e:
@@ -88,6 +106,7 @@ class ExamQuestionSerializer(serializers.ModelSerializer):
             "question_text",
             "question_type",
             "options",
+            "image_qs",
         ]
         read_only_fields = fields
 

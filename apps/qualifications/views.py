@@ -437,6 +437,11 @@ class MyQualificationsView(generics.ListAPIView):
          field hiding.
     Where:
       - GET /api/me/qualifications/  → LearnerDashboard.tsx "Your qualification" card.
+    Source of truth:
+      - Enrollments are owned by apps.learners.Enrollment (FK to LearnerProfile),
+        which is what AdminLearners writes during registration. The parallel
+        QualificationEnrollment model is unused by the registration flow, so we
+        join through the learners app to find the qualifications.
     """
     queryset = Qualification.objects.none()
     serializer_class = QualificationListSerializer
@@ -445,7 +450,18 @@ class MyQualificationsView(generics.ListAPIView):
     def get_queryset(self):
         if getattr(self, "swagger_fake_view", False):
             return Qualification.objects.none()
-        return selectors.qualification_for_learner_qs(self.request.user)
+        from apps.learners.models import Enrollment, EnrollmentStatus
+        qual_ids = (
+            Enrollment.objects
+            .filter(learner__user=self.request.user, status=EnrollmentStatus.ACTIVE)
+            .values_list("qualification_id", flat=True)
+        )
+        return (
+            Qualification.objects
+            .filter(id__in=qual_ids, is_active=True)
+            .with_relations()
+            .with_question_count()
+        )
 
 
 # ────────────────────────────────────────────────────────────
@@ -613,15 +629,29 @@ class MyEnrollmentsView(generics.ListAPIView):
          other learners' rows or admin-only notes.
     Where:
       - GET /api/me/enrollments/  → LearnerDashboard.tsx top card
+    Source of truth:
+      - Returns rows from apps.learners.Enrollment (the model that
+        AdminLearners writes), serialised via the learners app's
+        EnrollmentSerializer to match /learner/me/enrollments/.
     """
     queryset = QualificationEnrollment.objects.none()  # for spectacular schema introspection
     serializer_class = EnrollmentReadSerializer
     permission_classes = [IsAuthenticated]
 
+    def get_serializer_class(self):
+        from apps.learners.serializers import EnrollmentSerializer as LearnerEnrollmentSerializer
+        return LearnerEnrollmentSerializer
+
     def get_queryset(self):
         if getattr(self, "swagger_fake_view", False):
             return QualificationEnrollment.objects.none()
-        return selectors.enrollment_for_learner_qs(self.request.user)
+        from apps.learners.models import Enrollment
+        return (
+            Enrollment.objects
+            .filter(learner__user=self.request.user)
+            .select_related("learner__user", "qualification")
+            .order_by("-enrolled_at")
+        )
 
 
 # ────────────────────────────────────────────────────────────

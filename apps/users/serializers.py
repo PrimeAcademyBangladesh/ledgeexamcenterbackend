@@ -133,9 +133,7 @@ class MeUserSerializer(UserSerializer):
     profile = ProfileSerializer()
 
 
-class MeResponseSerializer(serializers.Serializer):
-    success = serializers.BooleanField()
-    message = serializers.CharField()
+class MePayloadSerializer(serializers.Serializer):
     user = MeUserSerializer()
 
 

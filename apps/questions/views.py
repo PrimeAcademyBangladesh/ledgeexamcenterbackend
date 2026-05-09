@@ -24,6 +24,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema, extend_schema_view
 from rest_framework import filters, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 
 from core.schemas import DEFAULT_ERROR_RESPONSES, envelope_detail, envelope_list
@@ -114,6 +115,7 @@ class QuestionViewSet(viewsets.ModelViewSet):
     # Serializer only emits FK/user primary keys; no select_related needed.
     queryset = Question.objects.all()
     serializer_class = QuestionSerializer
+    parser_classes = [JSONParser, FormParser, MultiPartParser]
     permission_classes = [IsAdminOrStaffReadOnly]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ["qualification", "is_active", "question_type"]

@@ -89,6 +89,18 @@ def _envelope_list_class(data_serializer_cls):
     )
 
 
+@lru_cache(maxsize=None)
+def _envelope_array_class(data_serializer_cls):
+    return _inline_singular_serializer(
+        name=f"{data_serializer_cls.__name__}EnvelopeArray",
+        fields={
+            "success": serializers.BooleanField(default=True),
+            "message": serializers.CharField(),
+            "data": data_serializer_cls(many=True),
+        },
+    )
+
+
 def envelope_detail(data_serializer, *, message_example: str = "Operation completed successfully."):
     """Single-object payload — used by retrieve/create/update.
     `message_example` is intentionally not part of the schema identity — one wrapper component per serializer."""
@@ -105,8 +117,15 @@ def envelope_detail(data_serializer, *, message_example: str = "Operation comple
     )
 
 
-def envelope_array(data_serializer, *, message_example: str = "Records retrieved successfully."):
+def envelope_array(
+    data_serializer,
+    *,
+    many: bool = False,
+    message_example: str = "Records retrieved successfully.",
+):
     """Non-paginated list payload wrapped in the standard envelope."""
+    if isinstance(data_serializer, type) and many:
+        return _envelope_array_class(data_serializer)
     return inline_serializer(
         name=_name(data_serializer, "EnvelopeArray"),
         fields={

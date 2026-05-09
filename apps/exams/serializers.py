@@ -10,6 +10,7 @@ from drf_spectacular.utils import extend_schema_field, inline_serializer
 from rest_framework import serializers
 from django.utils import timezone
 
+from apps.qualifications.models import Qualification
 from apps.questions.models import Question
 from .models import (
     ExamConfig, ExamSession, ExamResult,
@@ -49,6 +50,10 @@ class GradeBoundariesField(serializers.Field):
 
 
 class ExamConfigSerializer(serializers.ModelSerializer):
+    qualification_id = serializers.PrimaryKeyRelatedField(
+        queryset=Qualification.objects.all(),
+        source="qualification",
+    )
     qualification_title = serializers.CharField(source="qualification.title", read_only=True)
     grade_boundaries = GradeBoundariesField(source="*")
 
@@ -80,7 +85,7 @@ class ExamConfigSerializer(serializers.ModelSerializer):
 class ExamQuestionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Question
-        fields = ["id", "question_text", "question_type", "options"]
+        fields = ["id", "question_text", "question_type", "options", "image_qs"]
 
 
 # ---------------------------------------------------------------------------

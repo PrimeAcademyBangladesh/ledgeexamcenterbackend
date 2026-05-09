@@ -26,14 +26,18 @@ from django.contrib.auth import get_user_model
 from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_view
+from rest_framework import serializers as drf_serializers
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.exams.serializers import ExamSessionSerializer
 from apps.users.models import Role, StaffProfile
+from core.responses import APIResponse
+from core.schemas import DEFAULT_ERROR_RESPONSES, EmptyEnvelope, envelope_action, envelope_array, envelope_detail, envelope_list
 
 from .filters import InvigilatorFilter, ProviderCentreFilter
 from .models import (
@@ -56,6 +60,22 @@ User = get_user_model()
 # ---------------------------------------------------------------------------
 # /api/invigilators/
 # ---------------------------------------------------------------------------
+@extend_schema_view(
+    list=extend_schema(tags=["Invigilator"], responses={200: envelope_list(InvigilatorSerializer), **DEFAULT_ERROR_RESPONSES}),
+    retrieve=extend_schema(tags=["Invigilator"], responses={200: envelope_detail(InvigilatorSerializer), **DEFAULT_ERROR_RESPONSES}),
+    create=extend_schema(tags=["Invigilator"], request=RegisterInvigilatorSerializer, responses={201: envelope_detail(InvigilatorSerializer), **DEFAULT_ERROR_RESPONSES}),
+    partial_update=extend_schema(tags=["Invigilator"], request=UpdateInvigilatorSerializer, responses={200: envelope_detail(InvigilatorSerializer), **DEFAULT_ERROR_RESPONSES}),
+    destroy=extend_schema(tags=["Invigilator"], responses={204: None, **DEFAULT_ERROR_RESPONSES}),
+    activate=extend_schema(tags=["Invigilator"], responses={200: envelope_detail(InvigilatorSerializer), **DEFAULT_ERROR_RESPONSES}),
+    deactivate=extend_schema(tags=["Invigilator"], responses={200: envelope_detail(InvigilatorSerializer), **DEFAULT_ERROR_RESPONSES}),
+    resend_welcome=extend_schema(
+        tags=["Invigilator"],
+        responses={
+            200: envelope_action({"detail": drf_serializers.CharField()}, name="InvigilatorWelcomeQueued"),
+            **DEFAULT_ERROR_RESPONSES,
+        },
+    ),
+)
 class InvigilatorViewSet(viewsets.ModelViewSet):
     """CRUD for invigilator users."""
     queryset = (
@@ -106,13 +126,17 @@ class InvigilatorViewSet(viewsets.ModelViewSet):
         return Response({"detail": f"Welcome email queued for {user.email}"})
 
     # ----- /me/sessions/ -----
+    @extend_schema(tags=["Invigilator"], responses={200: envelope_array(ExamSessionSerializer, many=True), **DEFAULT_ERROR_RESPONSES})
     @action(detail=False, methods=["get"], url_path="me/sessions",
             permission_classes=[IsAuthenticated])
     def my_sessions(self, request):
         """Return ExamSessions assigned to the logged-in invigilator."""
         if request.user.role != Role.INVIGILATOR:
-            return Response({"detail": "Only invigilators can call this endpoint."},
-                            status=status.HTTP_403_FORBIDDEN)
+            return APIResponse.fail(
+                message="Forbidden",
+                errors={"detail": ["Only invigilators can call this endpoint."]},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         try:
             from apps.exams.models import ExamSession
             from apps.exams.serializers import ExamSessionSerializer
@@ -126,12 +150,16 @@ class InvigilatorViewSet(viewsets.ModelViewSet):
         return Response(ExamSessionSerializer(sessions, many=True).data)
 
     # ----- /me/availability/ -----
+    @extend_schema(tags=["Invigilator"], responses={200: envelope_array(AvailabilitySerializer, many=True), 201: envelope_detail(AvailabilitySerializer), **DEFAULT_ERROR_RESPONSES})
     @action(detail=False, methods=["get", "post"], url_path="me/availability",
             permission_classes=[IsAuthenticated])
     def my_availability(self, request):
         if request.user.role != Role.INVIGILATOR:
-            return Response({"detail": "Only invigilators can manage availability."},
-                            status=status.HTTP_403_FORBIDDEN)
+            return APIResponse.fail(
+                message="Forbidden",
+                errors={"detail": ["Only invigilators can manage availability."]},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         if request.method == "GET":
             slots = InvigilatorAvailability.objects.filter(user=request.user, is_active=True)
             return Response(AvailabilitySerializer(slots, many=True).data)
@@ -167,20 +195,34 @@ class InvigilatorByProviderCodeView(APIView):
     @extend_schema(
         tags=["Invigilator"],
         summary="Find an invigilator by provider code",
-        responses={200: InvigilatorSerializer},
+        responses={200: envelope_detail(InvigilatorSerializer), **DEFAULT_ERROR_RESPONSES},
     )
     def get(self, request, code: str):
-        user = get_object_or_404(
-            User.objects.select_related("staff_profile"),
-            role=Role.INVIGILATOR,
-            staff_profile__provider_code__iexact=code.strip().upper(),
+        normalized = code.strip().upper()
+        qs = (
+            User.objects
+            .filter(
+                role=Role.INVIGILATOR,
+                provider_links__provider__code__iexact=normalized,
+                provider_links__ended_at__isnull=True,
+            )
+            .select_related("staff_profile")
+            .distinct()
         )
+        user = get_object_or_404(qs)
         return Response(InvigilatorSerializer(user).data)
 
 
 # ---------------------------------------------------------------------------
 # Provider centres
 # ---------------------------------------------------------------------------
+@extend_schema_view(
+    list=extend_schema(tags=["Provider Centre"], responses={200: envelope_list(ProviderCentreSerializer), **DEFAULT_ERROR_RESPONSES}),
+    retrieve=extend_schema(tags=["Provider Centre"], responses={200: envelope_detail(ProviderCentreSerializer), **DEFAULT_ERROR_RESPONSES}),
+    create=extend_schema(tags=["Provider Centre"], request=ProviderCentreSerializer, responses={201: envelope_detail(ProviderCentreSerializer), **DEFAULT_ERROR_RESPONSES}),
+    partial_update=extend_schema(tags=["Provider Centre"], request=ProviderCentreSerializer, responses={200: envelope_detail(ProviderCentreSerializer), **DEFAULT_ERROR_RESPONSES}),
+    destroy=extend_schema(tags=["Provider Centre"], responses={204: None, **DEFAULT_ERROR_RESPONSES}),
+)
 class ProviderCentreViewSet(viewsets.ModelViewSet):
     queryset = ProviderCentre.objects.all().order_by("name")
     serializer_class = ProviderCentreSerializer
