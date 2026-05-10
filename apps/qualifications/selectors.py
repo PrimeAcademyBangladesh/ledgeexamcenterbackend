@@ -30,13 +30,6 @@ def sector_list_qs(*, include_inactive: bool = False):
 
 
 # ────────────────────────────────────────────────────────────
-#  Level
-# ────────────────────────────────────────────────────────────
-def level_list_qs(*, include_inactive: bool = False):
-    return Level.objects.all()
-
-
-# ────────────────────────────────────────────────────────────
 #  Qualification
 # ────────────────────────────────────────────────────────────
 def qualification_list_qs(*, include_inactive: bool = False):

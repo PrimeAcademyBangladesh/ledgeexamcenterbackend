@@ -20,7 +20,7 @@ from drf_spectacular.utils import (
 from rest_framework import filters, generics, mixins, serializers as drf_serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import MultiPartParser
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 
 from core.mixins import AuditLogMixin, SerializerByActionMixin
 from core.permission import IsAdmin, IsAdminOrReadOnlyForStaff
@@ -160,47 +160,48 @@ class SectorViewSet(AuditLogMixin, viewsets.ModelViewSet):
     list=extend_schema(
         tags=[TAG_LEVEL],
         summary="List levels",
-        responses={
-            200: OpenApiResponse(
-                response={
-                    "type": "object",
-                    "properties": {
-                        "success": {"type": "boolean", "default": True},
-                        "message": {"type": "string", "default": "Levels retrieved successfully."},
-                        "data": {
-                            "type": "array",
-                            "items": {"$ref": "#/components/schemas/Level"},
-                        },
-                    },
-                    "required": ["success", "message", "data"],
-                },
-                description="Enveloped non-paginated level list.",
-            ),
-            **DEFAULT_ERROR_RESPONSES,
-        },
+        responses={200: LevelSerializer(many=True)},
+    ),
+    retrieve=extend_schema(
+        tags=[TAG_LEVEL],
+        summary="Retrieve level",
+        responses={200: LevelSerializer},
+    ),
+    create=extend_schema(
+        tags=[TAG_LEVEL],
+        summary="Create level",
+        request=LevelSerializer,
+        responses={201: LevelSerializer},
+    ),
+    update=extend_schema(
+        tags=[TAG_LEVEL],
+        summary="Update level",
+        request=LevelSerializer,
+        responses={200: LevelSerializer},
+    ),
+    partial_update=extend_schema(
+        tags=[TAG_LEVEL],
+        summary="Partially update level",
+        request=LevelSerializer,
+        responses={200: LevelSerializer},
+    ),
+    destroy=extend_schema(
+        tags=[TAG_LEVEL],
+        summary="Delete level",
+        responses={204: None},
     ),
 )
-class LevelViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
+class LevelViewSet(viewsets.ModelViewSet):
     """
-    Read-only lookup endpoint for the fixed RQF level catalogue.
+    CRUD API for RQF levels.
+    """
 
-    Where:
-      - `GET /api/levels/` powers the Qualification create/edit form dropdown.
-      - The frontend should treat `value` as the persisted code and `label`
-        as the human-readable option text.
-    Notes:
-      - This endpoint is intentionally non-paginated because the dataset is a
-        fixed small lookup list.
-      - `include_inactive` is ignored here because levels are static choices.
-    """
     queryset = Level.objects.all()
     serializer_class = LevelSerializer
-    permission_classes = [IsAdminOrReadOnlyForStaff]
+    # permission_classes = [IsAdminOrReadOnlyForStaff]
+    permission_classes = [AllowAny]
     pagination_class = None
     ordering = ["name"]
-
-    def get_queryset(self):
-        return selectors.level_list_qs(include_inactive=_include_inactive(self.request))
 
 
 # ────────────────────────────────────────────────────────────
