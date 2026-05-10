@@ -361,7 +361,7 @@ class QualificationViewSet(
             )
         if action in ("retrieve", "bank_health", "units"):
             return selectors.qualification_detail_qs(include_inactive=True)
-        # create/update/destroy — relations are enough.
+
         return Qualification.objects.with_relations()
 
     @extend_schema(
@@ -472,7 +472,6 @@ class QualificationViewSet(
         """
         queryset = (
             Qualification.objects.filter(is_active=True)
-            .select_related("sector")
             .values(
                 "id",
                 "title",
@@ -482,7 +481,7 @@ class QualificationViewSet(
             )
             .order_by("title")
         )
-
+        
         data = [
             {
                 "id": item["id"],

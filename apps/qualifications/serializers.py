@@ -79,14 +79,16 @@ class QualificationUnitSerializer(serializers.ModelSerializer):
 # ────────────────────────────────────────────────────────────
 class QualificationListSerializer(serializers.ModelSerializer):
     """Lean payload — for dropdowns and table rows."""
+    sector_id= serializers.CharField(source="sector.id", read_only=True)
     sector_name = serializers.CharField(source="sector.name", read_only=True)
+    level_id = serializers.CharField(source="level.id", read_only=True)
     level_name = serializers.CharField(source="level.name", read_only=True)
     question_count = serializers.IntegerField(read_only=True, default=0)
 
     class Meta:
         model = Qualification
         fields = [
-            "id", "title", "code", "sector_name", "level_name",
+            "id", "title", "code","sector_id" ,"sector_name", "level_id", "level_name",
             "question_count", "is_active", "created_at",
         ]
 
