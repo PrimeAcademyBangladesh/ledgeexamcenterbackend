@@ -141,6 +141,7 @@ class SectorViewSet(AuditLogMixin, viewsets.ModelViewSet):
     serializer_class = SectorSerializer
     permission_classes = [IsAdminOrReadOnlyForStaff]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    pagination_class = None
     search_fields = ["name", "code"]
     ordering_fields = ["sort_order", "name"]
     ordering = ["sort_order", "name"]
