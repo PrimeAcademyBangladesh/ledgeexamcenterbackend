@@ -7,6 +7,7 @@ Views are thin: they wire HTTP → selector (read) or service (write).
 * Services own writes — call them, never duplicate their logic here.
 * Responses are auto-wrapped by core.renderers.EnvelopeJSONRenderer.
 """
+
 from __future__ import annotations
 
 from django_filters.rest_framework import DjangoFilterBackend
@@ -17,7 +18,13 @@ from drf_spectacular.utils import (
     extend_schema,
     extend_schema_view,
 )
-from rest_framework import filters, generics, mixins, serializers as drf_serializers, viewsets
+from rest_framework import (
+    filters,
+    generics,
+    mixins,
+    serializers as drf_serializers,
+    viewsets,
+)
 from rest_framework.decorators import action
 from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import IsAuthenticated, AllowAny
@@ -86,35 +93,55 @@ TAG_ENROLLMENT = "Qualification Enrollment"
         tags=[TAG_SECTOR],
         summary="List sectors",
         parameters=[INCLUDE_INACTIVE_PARAM],
-        responses={200: envelope_list(SectorSerializer, message_example="Sectors retrieved successfully."),
-                   **DEFAULT_ERROR_RESPONSES},
+        responses={
+            200: envelope_list(
+                SectorSerializer, message_example="Sectors retrieved successfully."
+            ),
+            **DEFAULT_ERROR_RESPONSES,
+        },
     ),
     retrieve=extend_schema(
         tags=[TAG_SECTOR],
         summary="Retrieve a sector",
-        responses={200: envelope_detail(SectorSerializer, message_example="Sector retrieved successfully."),
-                   **DEFAULT_ERROR_RESPONSES},
+        responses={
+            200: envelope_detail(
+                SectorSerializer, message_example="Sector retrieved successfully."
+            ),
+            **DEFAULT_ERROR_RESPONSES,
+        },
     ),
     create=extend_schema(
         tags=[TAG_SECTOR],
         summary="Create a sector",
         request=SectorSerializer,
-        responses={201: envelope_detail(SectorSerializer, message_example="Sector created successfully."),
-                   **DEFAULT_ERROR_RESPONSES},
+        responses={
+            201: envelope_detail(
+                SectorSerializer, message_example="Sector created successfully."
+            ),
+            **DEFAULT_ERROR_RESPONSES,
+        },
     ),
     update=extend_schema(
         tags=[TAG_SECTOR],
         summary="Replace a sector",
         request=SectorSerializer,
-        responses={200: envelope_detail(SectorSerializer, message_example="Sector updated successfully."),
-                   **DEFAULT_ERROR_RESPONSES},
+        responses={
+            200: envelope_detail(
+                SectorSerializer, message_example="Sector updated successfully."
+            ),
+            **DEFAULT_ERROR_RESPONSES,
+        },
     ),
     partial_update=extend_schema(
         tags=[TAG_SECTOR],
         summary="Partially update a sector",
         request=SectorSerializer,
-        responses={200: envelope_detail(SectorSerializer, message_example="Sector updated successfully."),
-                   **DEFAULT_ERROR_RESPONSES},
+        responses={
+            200: envelope_detail(
+                SectorSerializer, message_example="Sector updated successfully."
+            ),
+            **DEFAULT_ERROR_RESPONSES,
+        },
     ),
     destroy=extend_schema(
         tags=[TAG_SECTOR],
@@ -137,6 +164,7 @@ class SectorViewSet(AuditLogMixin, viewsets.ModelViewSet):
         to see soft-disabled rows on the management page.
       - List endpoint is ETag-cached for 5 min; mutation invalidates the tag.
     """
+
     queryset = Sector.objects.all()  # for router introspection
     serializer_class = SectorSerializer
     permission_classes = [IsAdminOrReadOnlyForStaff]
@@ -147,7 +175,9 @@ class SectorViewSet(AuditLogMixin, viewsets.ModelViewSet):
     ordering = ["sort_order", "name"]
 
     def get_queryset(self):
-        return selectors.sector_list_qs(include_inactive=_include_inactive(self.request))
+        return selectors.sector_list_qs(
+            include_inactive=_include_inactive(self.request)
+        )
 
     def perform_destroy(self, instance):
         services.assert_sector_deletable(instance)
@@ -213,39 +243,59 @@ class LevelViewSet(viewsets.ModelViewSet):
         summary="List qualifications",
         parameters=[INCLUDE_INACTIVE_PARAM],
         responses={
-            200: envelope_list(QualificationListSerializer, message_example="Qualifications retrieved successfully."),
-            **DEFAULT_ERROR_RESPONSES},
+            200: envelope_list(
+                QualificationListSerializer,
+                message_example="Qualifications retrieved successfully.",
+            ),
+            **DEFAULT_ERROR_RESPONSES,
+        },
     ),
     retrieve=extend_schema(
         tags=[TAG_QUALIFICATION],
         summary="Retrieve a qualification",
-        responses={200: envelope_detail(QualificationDetailSerializer,
-                                        message_example="Qualification retrieved successfully."),
-                   **DEFAULT_ERROR_RESPONSES},
+        responses={
+            200: envelope_detail(
+                QualificationDetailSerializer,
+                message_example="Qualification retrieved successfully.",
+            ),
+            **DEFAULT_ERROR_RESPONSES,
+        },
     ),
     create=extend_schema(
         tags=[TAG_QUALIFICATION],
         summary="Create a qualification",
         request=QualificationWriteSerializer,
         responses={
-            201: envelope_detail(QualificationWriteSerializer, message_example="Qualification created successfully."),
-            **DEFAULT_ERROR_RESPONSES},
+            201: envelope_detail(
+                QualificationWriteSerializer,
+                message_example="Qualification created successfully.",
+            ),
+            **DEFAULT_ERROR_RESPONSES,
+        },
     ),
     update=extend_schema(
         tags=[TAG_QUALIFICATION],
         summary="Replace a qualification",
         request=QualificationWriteSerializer,
         responses={
-            200: envelope_detail(QualificationWriteSerializer, message_example="Qualification updated successfully."),
-            **DEFAULT_ERROR_RESPONSES},
+            200: envelope_detail(
+                QualificationWriteSerializer,
+                message_example="Qualification updated successfully.",
+            ),
+            **DEFAULT_ERROR_RESPONSES,
+        },
     ),
     partial_update=extend_schema(
         tags=[TAG_QUALIFICATION],
         summary="Partially update a qualification",
         request=QualificationWriteSerializer,
         responses={
-            200: envelope_detail(QualificationWriteSerializer, message_example="Qualification updated successfully."),
-            **DEFAULT_ERROR_RESPONSES},
+            200: envelope_detail(
+                QualificationWriteSerializer,
+                message_example="Qualification updated successfully.",
+            ),
+            **DEFAULT_ERROR_RESPONSES,
+        },
     ),
     destroy=extend_schema(
         tags=[TAG_QUALIFICATION],
@@ -253,7 +303,9 @@ class LevelViewSet(viewsets.ModelViewSet):
         responses={204: None, **DEFAULT_ERROR_RESPONSES},
     ),
 )
-class QualificationViewSet(SerializerByActionMixin, AuditLogMixin, viewsets.ModelViewSet):
+class QualificationViewSet(
+    SerializerByActionMixin, AuditLogMixin, viewsets.ModelViewSet
+):
     """
     Qualification catalogue endpoint used across admin and learner surfaces.
 
@@ -275,6 +327,7 @@ class QualificationViewSet(SerializerByActionMixin, AuditLogMixin, viewsets.Mode
       - List: select_related sector+level, annotate question_count.
       - Detail: prefetch units; bankHealth computed via annotated query, not Python.
     """
+
     queryset = Qualification.objects.all()
     serializer_class = QualificationDetailSerializer
     serializer_action_classes = {
@@ -284,7 +337,11 @@ class QualificationViewSet(SerializerByActionMixin, AuditLogMixin, viewsets.Mode
         "partial_update": QualificationWriteSerializer,
     }
     permission_classes = [IsAdminOrReadOnlyForStaff]
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filter_backends = [
+        DjangoFilterBackend,
+        filters.SearchFilter,
+        filters.OrderingFilter,
+    ]
     filterset_fields = ["sector", "level", "is_active"]
     search_fields = ["title", "code"]
     ordering_fields = ["title", "code", "created_at"]
@@ -311,7 +368,9 @@ class QualificationViewSet(SerializerByActionMixin, AuditLogMixin, viewsets.Mode
                     "target": drf_serializers.IntegerField(),
                     "min": drf_serializers.IntegerField(),
                     "percent": drf_serializers.FloatField(),
-                    "status": drf_serializers.ChoiceField(choices=["healthy", "warning", "critical"]),
+                    "status": drf_serializers.ChoiceField(
+                        choices=["healthy", "warning", "critical"]
+                    ),
                 },
                 name="QualificationBankHealth",
                 message_example="Bank health retrieved successfully.",
@@ -330,6 +389,7 @@ class QualificationViewSet(SerializerByActionMixin, AuditLogMixin, viewsets.Mode
         metadata.
         """
         from django.shortcuts import get_object_or_404
+
         qual = get_object_or_404(
             Qualification.objects.only("id", "recommended_bank_size", "min_bank_size"),
             pk=pk,
@@ -364,8 +424,11 @@ class QualificationViewSet(SerializerByActionMixin, AuditLogMixin, viewsets.Mode
         # bare existence check is enough to enforce the permission contract.
         if not Qualification.objects.filter(pk=pk).exists():
             from django.http import Http404
+
             raise Http404("Qualification not found.")
-        units = QualificationUnit.objects.filter(qualification_id=pk).order_by("sort_order")
+        units = QualificationUnit.objects.filter(qualification_id=pk).order_by(
+            "sort_order"
+        )
         return APIResponse.ok(
             data=QualificationUnitSerializer(units, many=True).data,
             message="Units retrieved successfully.",
@@ -402,16 +465,23 @@ class QualificationViewSet(SerializerByActionMixin, AuditLogMixin, viewsets.Mode
           - Autocomplete
         """
         queryset = (
-            Qualification.objects
-            .filter(is_active=True)
-            .only("id", "title")
+            Qualification.objects.filter(is_active=True)
+            .select_related("sector")
+            .values(
+                "id",
+                "title",
+                "code",
+                "sector__name",
+            )
             .order_by("title")
         )
 
         data = [
             {
-                "id": item.id,
-                "title": item.title,
+                "id": item["id"],
+                "title": item["title"],
+                "code": item["code"],
+                "sector": item["sector__name"],
             }
             for item in queryset
         ]
@@ -426,7 +496,10 @@ class QualificationViewSet(SerializerByActionMixin, AuditLogMixin, viewsets.Mode
     tags=[TAG_QUALIFICATION],
     summary="List qualifications the current learner is enrolled on",
     responses={
-        200: envelope_list(QualificationListSerializer, message_example="Your qualifications retrieved successfully."),
+        200: envelope_list(
+            QualificationListSerializer,
+            message_example="Your qualifications retrieved successfully.",
+        ),
         **DEFAULT_ERROR_RESPONSES,
     },
 )
@@ -444,6 +517,7 @@ class MyQualificationsView(generics.ListAPIView):
         QualificationEnrollment model is unused by the registration flow, so we
         join through the learners app to find the qualifications.
     """
+
     queryset = Qualification.objects.none()
     serializer_class = QualificationListSerializer
     permission_classes = [IsAuthenticated]
@@ -452,14 +526,12 @@ class MyQualificationsView(generics.ListAPIView):
         if getattr(self, "swagger_fake_view", False):
             return Qualification.objects.none()
         from apps.learners.models import Enrollment, EnrollmentStatus
-        qual_ids = (
-            Enrollment.objects
-            .filter(learner__user=self.request.user, status=EnrollmentStatus.ACTIVE)
-            .values_list("qualification_id", flat=True)
-        )
+
+        qual_ids = Enrollment.objects.filter(
+            learner__user=self.request.user, status=EnrollmentStatus.ACTIVE
+        ).values_list("qualification_id", flat=True)
         return (
-            Qualification.objects
-            .filter(id__in=qual_ids, is_active=True)
+            Qualification.objects.filter(id__in=qual_ids, is_active=True)
             .with_relations()
             .with_question_count()
         )
@@ -472,35 +544,60 @@ class MyQualificationsView(generics.ListAPIView):
     list=extend_schema(
         tags=[TAG_UNIT],
         summary="List qualification units",
-        responses={200: envelope_list(QualificationUnitSerializer, message_example="Units retrieved successfully."),
-                   **DEFAULT_ERROR_RESPONSES},
+        responses={
+            200: envelope_list(
+                QualificationUnitSerializer,
+                message_example="Units retrieved successfully.",
+            ),
+            **DEFAULT_ERROR_RESPONSES,
+        },
     ),
     retrieve=extend_schema(
         tags=[TAG_UNIT],
         summary="Retrieve a qualification unit",
-        responses={200: envelope_detail(QualificationUnitSerializer, message_example="Unit retrieved successfully."),
-                   **DEFAULT_ERROR_RESPONSES},
+        responses={
+            200: envelope_detail(
+                QualificationUnitSerializer,
+                message_example="Unit retrieved successfully.",
+            ),
+            **DEFAULT_ERROR_RESPONSES,
+        },
     ),
     create=extend_schema(
         tags=[TAG_UNIT],
         summary="Create a qualification unit",
         request=QualificationUnitSerializer,
-        responses={201: envelope_detail(QualificationUnitSerializer, message_example="Unit created successfully."),
-                   **DEFAULT_ERROR_RESPONSES},
+        responses={
+            201: envelope_detail(
+                QualificationUnitSerializer,
+                message_example="Unit created successfully.",
+            ),
+            **DEFAULT_ERROR_RESPONSES,
+        },
     ),
     update=extend_schema(
         tags=[TAG_UNIT],
         summary="Replace a qualification unit",
         request=QualificationUnitSerializer,
-        responses={200: envelope_detail(QualificationUnitSerializer, message_example="Unit updated successfully."),
-                   **DEFAULT_ERROR_RESPONSES},
+        responses={
+            200: envelope_detail(
+                QualificationUnitSerializer,
+                message_example="Unit updated successfully.",
+            ),
+            **DEFAULT_ERROR_RESPONSES,
+        },
     ),
     partial_update=extend_schema(
         tags=[TAG_UNIT],
         summary="Partially update a qualification unit",
         request=QualificationUnitSerializer,
-        responses={200: envelope_detail(QualificationUnitSerializer, message_example="Unit updated successfully."),
-                   **DEFAULT_ERROR_RESPONSES},
+        responses={
+            200: envelope_detail(
+                QualificationUnitSerializer,
+                message_example="Unit updated successfully.",
+            ),
+            **DEFAULT_ERROR_RESPONSES,
+        },
     ),
     destroy=extend_schema(
         tags=[TAG_UNIT],
@@ -521,6 +618,7 @@ class QualificationUnitViewSet(AuditLogMixin, viewsets.ModelViewSet):
         with `?qualification={id}` filter. Pick one and stay consistent —
         recommendation: nested for writes, flat for reads.
     """
+
     queryset = QualificationUnit.objects.all()
     serializer_class = QualificationUnitSerializer
     permission_classes = [IsAdminOrReadOnlyForStaff]
@@ -541,35 +639,60 @@ class QualificationUnitViewSet(AuditLogMixin, viewsets.ModelViewSet):
     list=extend_schema(
         tags=[TAG_ENROLLMENT],
         summary="List enrolments",
-        responses={200: envelope_list(EnrollmentReadSerializer, message_example="Enrolments retrieved successfully."),
-                   **DEFAULT_ERROR_RESPONSES},
+        responses={
+            200: envelope_list(
+                EnrollmentReadSerializer,
+                message_example="Enrolments retrieved successfully.",
+            ),
+            **DEFAULT_ERROR_RESPONSES,
+        },
     ),
     retrieve=extend_schema(
         tags=[TAG_ENROLLMENT],
         summary="Retrieve an enrolment",
-        responses={200: envelope_detail(EnrollmentReadSerializer, message_example="Enrolment retrieved successfully."),
-                   **DEFAULT_ERROR_RESPONSES},
+        responses={
+            200: envelope_detail(
+                EnrollmentReadSerializer,
+                message_example="Enrolment retrieved successfully.",
+            ),
+            **DEFAULT_ERROR_RESPONSES,
+        },
     ),
     create=extend_schema(
         tags=[TAG_ENROLLMENT],
         summary="Create an enrolment",
         request=EnrollmentWriteSerializer,
-        responses={201: envelope_detail(EnrollmentReadSerializer, message_example="Enrolment created successfully."),
-                   **DEFAULT_ERROR_RESPONSES},
+        responses={
+            201: envelope_detail(
+                EnrollmentReadSerializer,
+                message_example="Enrolment created successfully.",
+            ),
+            **DEFAULT_ERROR_RESPONSES,
+        },
     ),
     update=extend_schema(
         tags=[TAG_ENROLLMENT],
         summary="Replace an enrolment",
         request=EnrollmentWriteSerializer,
-        responses={200: envelope_detail(EnrollmentReadSerializer, message_example="Enrolment updated successfully."),
-                   **DEFAULT_ERROR_RESPONSES},
+        responses={
+            200: envelope_detail(
+                EnrollmentReadSerializer,
+                message_example="Enrolment updated successfully.",
+            ),
+            **DEFAULT_ERROR_RESPONSES,
+        },
     ),
     partial_update=extend_schema(
         tags=[TAG_ENROLLMENT],
         summary="Partially update an enrolment",
         request=EnrollmentWriteSerializer,
-        responses={200: envelope_detail(EnrollmentReadSerializer, message_example="Enrolment updated successfully."),
-                   **DEFAULT_ERROR_RESPONSES},
+        responses={
+            200: envelope_detail(
+                EnrollmentReadSerializer,
+                message_example="Enrolment updated successfully.",
+            ),
+            **DEFAULT_ERROR_RESPONSES,
+        },
     ),
     destroy=extend_schema(
         tags=[TAG_ENROLLMENT],
@@ -593,6 +716,7 @@ class EnrollmentViewSet(SerializerByActionMixin, AuditLogMixin, viewsets.ModelVi
       - Invigilator: read-only on enrolments for sessions they invigilate.
       - Learner: denied (use /api/me/enrollments/).
     """
+
     queryset = QualificationEnrollment.objects.all()
     serializer_class = EnrollmentReadSerializer
     serializer_action_classes = {
@@ -604,8 +728,11 @@ class EnrollmentViewSet(SerializerByActionMixin, AuditLogMixin, viewsets.ModelVi
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
     filterset_fields = ["learner", "qualification", "status", "cohort", "employer"]
     search_fields = [
-        "learner__email", "learner__first_name", "learner__last_name",
-        "qualification__title", "qualification__code",
+        "learner__email",
+        "learner__first_name",
+        "learner__last_name",
+        "qualification__title",
+        "qualification__code",
     ]
 
     def get_queryset(self):
@@ -620,7 +747,10 @@ class EnrollmentViewSet(SerializerByActionMixin, AuditLogMixin, viewsets.ModelVi
     tags=[TAG_ENROLLMENT],
     summary="List the current learner's enrolments",
     responses={
-        200: envelope_list(EnrollmentReadSerializer, message_example="Your enrolments retrieved successfully."),
+        200: envelope_list(
+            EnrollmentReadSerializer,
+            message_example="Your enrolments retrieved successfully.",
+        ),
         **DEFAULT_ERROR_RESPONSES,
     },
 )
@@ -635,21 +765,27 @@ class MyEnrollmentsView(generics.ListAPIView):
         AdminLearners writes), serialised via the learners app's
         EnrollmentSerializer to match /learner/me/enrollments/.
     """
-    queryset = QualificationEnrollment.objects.none()  # for spectacular schema introspection
+
+    queryset = (
+        QualificationEnrollment.objects.none()
+    )  # for spectacular schema introspection
     serializer_class = EnrollmentReadSerializer
     permission_classes = [IsAuthenticated]
 
     def get_serializer_class(self):
-        from apps.learners.serializers import EnrollmentSerializer as LearnerEnrollmentSerializer
+        from apps.learners.serializers import (
+            EnrollmentSerializer as LearnerEnrollmentSerializer,
+        )
+
         return LearnerEnrollmentSerializer
 
     def get_queryset(self):
         if getattr(self, "swagger_fake_view", False):
             return QualificationEnrollment.objects.none()
         from apps.learners.models import Enrollment
+
         return (
-            Enrollment.objects
-            .filter(learner__user=self.request.user)
+            Enrollment.objects.filter(learner__user=self.request.user)
             .select_related("learner__user", "qualification")
             .order_by("-enrolled_at")
         )
@@ -662,10 +798,10 @@ class MyEnrollmentsView(generics.ListAPIView):
     tags=[TAG_ENROLLMENT],
     summary="Bulk-import enrolments from a CSV file",
     description=(
-            "Accepts a multipart/form-data CSV. Required columns: "
-            "`learner_id, qualification_id, cohort, enrolled_at`. "
-            "Optional: `employer, status, expected_end_date, notes`. "
-            "The natural key `(learner_id, qualification_id, cohort)` is upserted."
+        "Accepts a multipart/form-data CSV. Required columns: "
+        "`learner_id, qualification_id, cohort, enrolled_at`. "
+        "Optional: `employer, status, expected_end_date, notes`. "
+        "The natural key `(learner_id, qualification_id, cohort)` is upserted."
     ),
     request={
         "multipart/form-data": {
@@ -696,6 +832,7 @@ class BulkEnrollmentImportView(generics.GenericAPIView):
       - Returns per-row errors for the UI to render in a table.
       - Idempotent: re-uploading the same CSV is a no-op (unique constraint).
     """
+
     permission_classes = [IsAdmin]
     parser_classes = [MultiPartParser]
     serializer_class = EnrollmentReadSerializer  # for browsable API only
