@@ -51,12 +51,11 @@ class SectorSerializer(serializers.ModelSerializer):
 #  Level
 # ────────────────────────────────────────────────────────────
 class LevelSerializer(serializers.ModelSerializer):
-    value = serializers.CharField(source="name", read_only=True)
     label = serializers.CharField(source="get_name_display", read_only=True)
 
     class Meta:
         model = Level
-        fields = ["id", "value", "label"]
+        fields = ["id", "label"]
         read_only_fields = fields
 
 
