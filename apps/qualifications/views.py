@@ -198,8 +198,7 @@ class LevelViewSet(viewsets.ModelViewSet):
 
     queryset = Level.objects.all()
     serializer_class = LevelSerializer
-    # permission_classes = [IsAdminOrReadOnlyForStaff]
-    permission_classes = [AllowAny]
+    permission_classes = [IsAdminOrReadOnlyForStaff]
     pagination_class = None
     ordering = ["name"]
 
