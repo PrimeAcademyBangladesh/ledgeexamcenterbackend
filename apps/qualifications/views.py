@@ -472,6 +472,7 @@ class QualificationViewSet(
                 "title",
                 "code",
                 "sector__name",
+                "level__name",
             )
             .order_by("title")
         )
@@ -482,6 +483,7 @@ class QualificationViewSet(
                 "title": item["title"],
                 "code": item["code"],
                 "sector": item["sector__name"],
+                "level": item["level__name"],
             }
             for item in queryset
         ]
