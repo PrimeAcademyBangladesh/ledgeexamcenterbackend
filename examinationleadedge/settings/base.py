@@ -154,7 +154,7 @@ REST_FRAMEWORK = {
 }
 
 SPECTACULAR_SETTINGS = {
-    "TITLE": "The Prime College UK Backend API",
+    "TITLE": "LeadEdge Examination Backend API",
     "DESCRIPTION": (
         "Official REST API for the exam platform. "
         "Endpoints are grouped by operational domain so frontend teams can "

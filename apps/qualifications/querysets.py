@@ -39,8 +39,9 @@ class QualificationQuerySet(models.QuerySet):
         return self.select_related("sector", "level")
 
     def with_question_count(self):
-        # Defensive: only annotate if a reverse `questions` relation exists.
-        if not hasattr(self.model, "questions"):
+        try:
+            self.model._meta.get_field("questions")
+        except Exception:
             return self
         return self.annotate(
             question_count=Count("questions", filter=Q(questions__is_active=True))

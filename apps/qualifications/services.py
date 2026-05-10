@@ -11,8 +11,6 @@ Rules:
 """
 from __future__ import annotations
 
-from typing import Iterable
-
 from django.db import transaction
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
@@ -38,57 +36,20 @@ def withdraw_enrollment(enrollment: QualificationEnrollment, *, reason: str = ""
     return enrollment
 
 
-@transaction.atomic
-def bulk_upsert_enrollments(rows: Iterable[dict]) -> list[QualificationEnrollment]:
-    """
-    Idempotent bulk import: (learner_id, qualification_id, cohort) is the
-    natural key. Existing rows are updated; new ones inserted.
-
-    `rows` items must contain at minimum:
-        learner_id, qualification_id, cohort
-    Optional:
-        employer, status, enrolled_at, expected_end_date, notes
-    """
-    rows = list(rows)
-    if not rows:
-        return []
-
-    # Deduplicate on natural key — last write wins.
-    deduped: dict[tuple, dict] = {}
-    for r in rows:
-        try:
-            key = (r["learner_id"], r["qualification_id"], r["cohort"])
-        except KeyError as e:
-            raise ValidationError(f"Missing key in import row: {e.args[0]}")
-        deduped[key] = r
-
-    saved: list[QualificationEnrollment] = []
-    for key, payload in deduped.items():
-        learner_id, qualification_id, cohort = key
-        obj, _ = QualificationEnrollment.objects.update_or_create(
-            learner_id=learner_id,
-            qualification_id=qualification_id,
-            cohort=cohort,
-            defaults={k: v for k, v in payload.items() if k not in {"learner_id", "qualification_id", "cohort"}},
-        )
-        saved.append(obj)
-    return saved
-
-
 # ────────────────────────────────────────────────────────────
 #  Sector / Level — referential integrity guards
 # ────────────────────────────────────────────────────────────
 def assert_sector_deletable(sector) -> None:
     if sector.qualifications.exists():
         raise ConflictError(
-            "Cannot delete sector while qualifications reference it. "
-            "Set is_active=false instead."
+            "Cannot deactivate sector while qualifications reference it. "
+            "Deactivate or reassign those qualifications first."
         )
 
 
 def assert_level_deletable(level) -> None:
     if level.qualifications.exists():
         raise ConflictError(
-            "Cannot delete level while qualifications reference it. "
-            "Set is_active=false instead."
+            "Cannot deactivate level while qualifications reference it. "
+            "Deactivate or reassign those qualifications first."
         )

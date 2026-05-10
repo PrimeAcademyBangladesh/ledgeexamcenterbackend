@@ -26,11 +26,10 @@ from rest_framework import (
     viewsets,
 )
 from rest_framework.decorators import action
-from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import IsAuthenticated, AllowAny
 
 from core.mixins import AuditLogMixin, SerializerByActionMixin
-from core.permission import IsAdmin, IsAdminOrReadOnlyForStaff
+from core.permission import IsAdminOrReadOnlyForStaff
 from core.responses import APIResponse
 from core.schemas import (
     DEFAULT_ERROR_RESPONSES,
@@ -145,8 +144,8 @@ TAG_ENROLLMENT = "Qualification Enrollment"
     ),
     destroy=extend_schema(
         tags=[TAG_SECTOR],
-        summary="Delete a sector",
-        description="Hard-deletes a sector. Fails with 409 if any qualification still references it.",
+        summary="Deactivate a sector",
+        description="Sets `is_active=false`. Fails with 409 if any active qualification still references it.",
         responses={204: None, **DEFAULT_ERROR_RESPONSES},
     ),
 )
@@ -158,7 +157,7 @@ class SectorViewSet(AuditLogMixin, viewsets.ModelViewSet):
       - GET    /api/sectors/{id}/           → Admin Sectors settings page (planned)
       - POST   /api/sectors/                → "Add Sector" admin form
       - PATCH  /api/sectors/{id}/           → Toggle is_active, rename, reorder
-      - DELETE /api/sectors/{id}/           → Hard delete (PROTECTED if any Qualification refs it)
+      - DELETE /api/sectors/{id}/           → Soft deactivate (409 if any active Qualification refs it)
     Notes:
       - Default queryset hides inactive sectors. Admin can pass ?include_inactive=true
         to see soft-disabled rows on the management page.
@@ -181,7 +180,8 @@ class SectorViewSet(AuditLogMixin, viewsets.ModelViewSet):
 
     def perform_destroy(self, instance):
         services.assert_sector_deletable(instance)
-        super().perform_destroy(instance)
+        instance.is_active = False
+        instance.save(update_fields=["is_active"])
 
 
 # ────────────────────────────────────────────────────────────
@@ -218,8 +218,9 @@ class SectorViewSet(AuditLogMixin, viewsets.ModelViewSet):
     ),
     destroy=extend_schema(
         tags=[TAG_LEVEL],
-        summary="Delete level",
-        responses={204: None},
+        summary="Deactivate level",
+        description="Sets `is_active=false`. Fails with 409 if any active qualification still references it.",
+        responses={204: None, **DEFAULT_ERROR_RESPONSES},
     ),
 )
 class LevelViewSet(viewsets.ModelViewSet):
@@ -232,6 +233,11 @@ class LevelViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdminOrReadOnlyForStaff]
     pagination_class = None
     ordering = ["name"]
+
+    def perform_destroy(self, instance):
+        services.assert_level_deletable(instance)
+        instance.is_active = False
+        instance.save(update_fields=["is_active"])
 
 
 # ────────────────────────────────────────────────────────────
@@ -790,77 +796,4 @@ class MyEnrollmentsView(generics.ListAPIView):
             Enrollment.objects.filter(learner__user=self.request.user)
             .select_related("learner__user", "qualification")
             .order_by("-enrolled_at")
-        )
-
-
-# ────────────────────────────────────────────────────────────
-#  Bulk import (CSV)
-# ────────────────────────────────────────────────────────────
-@extend_schema(
-    tags=[TAG_ENROLLMENT],
-    summary="Bulk-import enrolments from a CSV file",
-    description=(
-        "Accepts a multipart/form-data CSV. Required columns: "
-        "`learner_id, qualification_id, cohort, enrolled_at`. "
-        "Optional: `employer, status, expected_end_date, notes`. "
-        "The natural key `(learner_id, qualification_id, cohort)` is upserted."
-    ),
-    request={
-        "multipart/form-data": {
-            "type": "object",
-            "properties": {
-                "file": {"type": "string", "format": "binary"},
-            },
-            "required": ["file"],
-        }
-    },
-    responses={
-        201: envelope_action(
-            {"created": drf_serializers.IntegerField()},
-            name="BulkEnrollmentImport",
-            message_example="N enrolment(s) imported successfully.",
-        ),
-        **DEFAULT_ERROR_RESPONSES,
-    },
-)
-class BulkEnrollmentImportView(generics.GenericAPIView):
-    """
-    Why: AdminLearners.tsx will need a CSV import path (office onboards
-         cohorts of 50–200 learners at once). One row per (learner, qual, cohort).
-    Where:
-      - POST /api/enrollments/bulk-import/   (multipart, file=enrollments.csv)
-    Behaviour:
-      - Atomic transaction: either ALL rows pass validation or NONE are written.
-      - Returns per-row errors for the UI to render in a table.
-      - Idempotent: re-uploading the same CSV is a no-op (unique constraint).
-    """
-
-    permission_classes = [IsAdmin]
-    parser_classes = [MultiPartParser]
-    serializer_class = EnrollmentReadSerializer  # for browsable API only
-
-    def post(self, request):
-        file = request.FILES.get("file")
-        if not file:
-            return APIResponse.fail(
-                message="A CSV file is required.",
-                errors={"file": ["This field is required."]},
-                status=400,
-            )
-
-        from .services_imports import parse_enrollment_csv
-
-        rows, errors = parse_enrollment_csv(file)
-        if errors:
-            return APIResponse.fail(
-                message="The uploaded CSV contains errors.",
-                errors={"rows": errors},
-                status=400,
-            )
-
-        created = services.bulk_upsert_enrollments(rows)
-        return APIResponse.ok(
-            data={"created": len(created)},
-            message=f"{len(created)} enrolment(s) imported successfully.",
-            status=201,
         )

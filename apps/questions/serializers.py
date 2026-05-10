@@ -9,8 +9,6 @@ Two serializer classes:
 2. ExamQuestionSerializer — Learner-safe (no correct_answers, no explanation).
    Used by exam/serializers.ValidatePinResponseSerializer when delivering the
    frozen paper. Mirrors src/services/api/types.ts ExamQuestion.
-
-3. BulkImportSerializer — for POST /api/questions/bulk-import/.
 """
 
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -109,22 +107,3 @@ class ExamQuestionSerializer(serializers.ModelSerializer):
             "image_qs",
         ]
         read_only_fields = fields
-
-
-class BulkImportItemSerializer(serializers.Serializer):
-    question_text = serializers.CharField()
-    question_type = serializers.ChoiceField(choices=["single", "multiple"], default="single")
-    options = serializers.ListField(child=serializers.CharField(), min_length=2)
-    correct_answers = serializers.ListField(child=serializers.IntegerField(min_value=0))
-    explanation = serializers.CharField(required=False, allow_blank=True, default="")
-    tags = serializers.ListField(child=serializers.CharField(), required=False, default=list)
-
-
-class BulkImportSerializer(serializers.Serializer):
-    qualification_id = serializers.UUIDField()
-    questions = BulkImportItemSerializer(many=True)
-
-
-class BulkImportResultSerializer(serializers.Serializer):
-    imported = serializers.IntegerField()
-    ids = serializers.ListField(child=serializers.UUIDField())

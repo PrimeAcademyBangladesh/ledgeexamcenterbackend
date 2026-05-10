@@ -9,33 +9,24 @@ Endpoints (all under /api/):
   PUT    /api/questions/<id>/
   PATCH  /api/questions/<id>/
   DELETE /api/questions/<id>/                     (soft delete -> is_active=False)
-  POST   /api/questions/bulk-import/
 
 Frontend touchpoints:
-- AdminQuestionBank.tsx -> questionService.listQuestions / createQuestion /
-  deleteQuestion / (bulk import is wired client-side; switch to the bulk
-  endpoint when going live).
+- AdminQuestionBank.tsx -> questionService.listQuestions / createQuestion / deleteQuestion.
 - exam/services.select_questions_for_learner reads Question.objects directly,
   it does not go through this API.
 """
 
-from django.db import transaction
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema, extend_schema_view
-from rest_framework import filters, status, viewsets
-from rest_framework.decorators import action
+from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema, extend_schema_view, inline_serializer
+from rest_framework import filters, serializers as drf_serializers, status, viewsets
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 
-from core.schemas import DEFAULT_ERROR_RESPONSES, envelope_detail, envelope_list
+from core.schemas import DEFAULT_ERROR_RESPONSES, envelope_detail
 
 from .models import Question
 from .permissions import IsAdminOrStaffReadOnly
-from .serializers import (
-    BulkImportSerializer,
-    BulkImportResultSerializer,
-    QuestionSerializer,
-)
+from .serializers import QuestionSerializer
 
 
 QUESTION_QUALIFICATION_PARAM = OpenApiParameter(
@@ -51,8 +42,31 @@ QUESTION_QUALIFICATION_PARAM = OpenApiParameter(
     list=extend_schema(
         tags=["Question"],
         summary="List questions",
-        parameters=[QUESTION_QUALIFICATION_PARAM],
-        responses={200: envelope_list(QuestionSerializer, message_example="Questions retrieved successfully."), **DEFAULT_ERROR_RESPONSES},
+        parameters=[
+            QUESTION_QUALIFICATION_PARAM,
+            OpenApiParameter(name="qualification", exclude=True),
+        ],
+        responses={
+            200: inline_serializer(
+                name="QuestionListEnvelope",
+                fields={
+                    "success": drf_serializers.BooleanField(default=True),
+                    "message": drf_serializers.CharField(),
+                    "data": inline_serializer(
+                        name="QuestionListData",
+                        fields={
+                            "count": drf_serializers.IntegerField(),
+                            "next": drf_serializers.URLField(allow_null=True, required=False),
+                            "previous": drf_serializers.URLField(allow_null=True, required=False),
+                            "results": QuestionSerializer(many=True),
+                            "pool_total": drf_serializers.IntegerField(help_text="Total questions matching current filters."),
+                            "pool_active": drf_serializers.IntegerField(help_text="Active questions matching current filters."),
+                        },
+                    ),
+                },
+            ),
+            **DEFAULT_ERROR_RESPONSES,
+        },
     ),
     retrieve=extend_schema(
         tags=["Question"],
@@ -83,20 +97,6 @@ QUESTION_QUALIFICATION_PARAM = OpenApiParameter(
         description="Marks `is_active=false` so historical sessions and seen-question records remain valid.",
         responses={204: None, **DEFAULT_ERROR_RESPONSES},
     ),
-    bulk_import=extend_schema(
-        tags=["Question"],
-        summary="Bulk-import questions",
-        description=(
-            "Create many questions for a single qualification in one request. "
-            "The frontend can use this for CSV/JSON-assisted imports to avoid "
-            "N sequential create calls."
-        ),
-        request=BulkImportSerializer,
-        responses={
-            201: envelope_detail(BulkImportResultSerializer, message_example="Questions imported successfully."),
-            **DEFAULT_ERROR_RESPONSES,
-        },
-    ),
 )
 class QuestionViewSet(viewsets.ModelViewSet):
     """
@@ -118,18 +118,37 @@ class QuestionViewSet(viewsets.ModelViewSet):
     parser_classes = [JSONParser, FormParser, MultiPartParser]
     permission_classes = [IsAdminOrStaffReadOnly]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ["qualification", "is_active", "question_type"]
+    filterset_fields = ["is_active", "question_type"]
     search_fields = ["question_text", "tags"]
     ordering_fields = ["created_at", "updated_at"]
     ordering = ["-created_at"]
 
     def get_queryset(self):
         qs = super().get_queryset()
-        # UI sends ?qualification_id=… — translate to the FK column.
         qualification_id = self.request.query_params.get("qualification_id")
         if qualification_id:
             qs = qs.filter(qualification_id=qualification_id)
         return qs
+
+    def list(self, request, *args, **kwargs):
+        qs = self.filter_queryset(self.get_queryset())
+        pool_total = qs.count()
+        pool_active = qs.filter(is_active=True).count()
+
+        page = self.paginate_queryset(qs)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            response = self.get_paginated_response(serializer.data)
+            response.data["pool_total"] = pool_total
+            response.data["pool_active"] = pool_active
+            return response
+
+        serializer = self.get_serializer(qs, many=True)
+        return Response({
+            "results": serializer.data,
+            "pool_total": pool_total,
+            "pool_active": pool_active,
+        })
 
     def destroy(self, request, *args, **kwargs):
         """Soft-delete: keeps historical exam papers and seen-question records intact."""
@@ -137,28 +156,3 @@ class QuestionViewSet(viewsets.ModelViewSet):
         obj.is_active = False
         obj.save(update_fields=["is_active", "updated_at"])
         return Response(status=status.HTTP_204_NO_CONTENT)
-
-    # -----------------------------------------------------------------
-    # POST /api/questions/bulk-import/
-    # -----------------------------------------------------------------
-    @action(detail=False, methods=["post"], url_path="bulk-import")
-    def bulk_import(self, request):
-        ser = BulkImportSerializer(data=request.data)
-        ser.is_valid(raise_exception=True)
-        qualification_id = ser.validated_data["qualification_id"]
-        items = ser.validated_data["questions"]
-        # Permission class guarantees auth.
-        creator = request.user
-
-        # One INSERT for the whole batch instead of N.
-        objs = [
-            Question(qualification_id=qualification_id, created_by=creator, **item)
-            for item in items
-        ]
-        with transaction.atomic():
-            created = Question.objects.bulk_create(objs)
-
-        return Response(
-            {"imported": len(created), "ids": [str(q.id) for q in created]},
-            status=status.HTTP_201_CREATED,
-        )

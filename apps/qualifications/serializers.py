@@ -68,7 +68,7 @@ class QualificationUnitSerializer(serializers.ModelSerializer):
     class Meta:
         model = QualificationUnit
         fields = [
-            "id", "code", "title", "description",
+            "id", "qualification", "code", "title", "description",
             "weight", "sort_order", "question_count",
         ]
         read_only_fields = ["id", "question_count"]
@@ -114,7 +114,6 @@ class QualificationDetailSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(QualificationUnitSerializer(many=True))
     def get_units(self, obj):
-        # `units` is prefetched in selectors.qualification_detail_qs — no DB hit.
         units = sorted(obj.units.all(), key=lambda u: u.sort_order)
         return QualificationUnitSerializer(units, many=True).data
 
