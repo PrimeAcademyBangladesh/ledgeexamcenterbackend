@@ -41,7 +41,7 @@ class Question(models.Model):
     correct_answers = models.JSONField(default=list)
     explanation = models.TextField(blank=True, default="")
     tags = models.JSONField(default=list, blank=True)
-    image_qs = models.ImageField(upload_to="questions/images/", blank=True, null=True)
+    image_qs = models.ImageField(upload_to="questions_images/", blank=True, null=True)
 
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)

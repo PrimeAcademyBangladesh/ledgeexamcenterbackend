@@ -76,19 +76,19 @@ QUESTION_QUALIFICATION_PARAM = OpenApiParameter(
     create=extend_schema(
         tags=["Question"],
         summary="Create a question",
-        request=QuestionSerializer,
+        request={"multipart/form-data": QuestionSerializer, "application/json": QuestionSerializer},
         responses={201: envelope_detail(QuestionSerializer, message_example="Question created successfully."), **DEFAULT_ERROR_RESPONSES},
     ),
     update=extend_schema(
         tags=["Question"],
         summary="Replace a question",
-        request=QuestionSerializer,
+        request={"multipart/form-data": QuestionSerializer, "application/json": QuestionSerializer},
         responses={200: envelope_detail(QuestionSerializer, message_example="Question updated successfully."), **DEFAULT_ERROR_RESPONSES},
     ),
     partial_update=extend_schema(
         tags=["Question"],
         summary="Partially update a question",
-        request=QuestionSerializer,
+        request={"multipart/form-data": QuestionSerializer, "application/json": QuestionSerializer},
         responses={200: envelope_detail(QuestionSerializer, message_example="Question updated successfully."), **DEFAULT_ERROR_RESPONSES},
     ),
     destroy=extend_schema(
