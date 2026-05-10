@@ -30,6 +30,10 @@ class EnvelopeJSONRenderer(JSONRenderer):
         if response is None or not is_success(response.status_code):
             return super().render(data, accepted_media_type, renderer_context)
 
+        # 204 No Content must have an empty body — never wrap.
+        if response.status_code == 204:
+            return b""
+
         # Per-response opt-out (e.g. file downloads).
         if getattr(response, "envelope", True) is False:
             return super().render(data, accepted_media_type, renderer_context)

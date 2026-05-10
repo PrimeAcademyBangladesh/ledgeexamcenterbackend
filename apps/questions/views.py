@@ -34,7 +34,15 @@ QUESTION_QUALIFICATION_PARAM = OpenApiParameter(
     type=OpenApiTypes.UUID,
     location=OpenApiParameter.QUERY,
     required=False,
-    description="Filter questions by qualification UUID. Kept for frontend compatibility.",
+    description="Filter questions by qualification UUID.",
+)
+
+QUESTION_INCLUDE_INACTIVE_PARAM = OpenApiParameter(
+    name="include_inactive",
+    type=OpenApiTypes.BOOL,
+    location=OpenApiParameter.QUERY,
+    required=False,
+    description="If `true`, include soft-deleted (is_active=false) questions. Admin only.",
 )
 
 
@@ -44,6 +52,7 @@ QUESTION_QUALIFICATION_PARAM = OpenApiParameter(
         summary="List questions",
         parameters=[
             QUESTION_QUALIFICATION_PARAM,
+            QUESTION_INCLUDE_INACTIVE_PARAM,
             OpenApiParameter(name="qualification", exclude=True),
         ],
         responses={
@@ -118,7 +127,7 @@ class QuestionViewSet(viewsets.ModelViewSet):
     parser_classes = [JSONParser, FormParser, MultiPartParser]
     permission_classes = [IsAdminOrStaffReadOnly]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ["is_active", "question_type"]
+    filterset_fields = ["question_type"]
     search_fields = ["question_text", "tags"]
     ordering_fields = ["created_at", "updated_at"]
     ordering = ["-created_at"]
@@ -128,6 +137,9 @@ class QuestionViewSet(viewsets.ModelViewSet):
         qualification_id = self.request.query_params.get("qualification_id")
         if qualification_id:
             qs = qs.filter(qualification_id=qualification_id)
+        include_inactive = self.request.query_params.get("include_inactive", "").lower() == "true"
+        if not include_inactive:
+            qs = qs.filter(is_active=True)
         return qs
 
     def list(self, request, *args, **kwargs):
