@@ -43,6 +43,14 @@ class ProviderCentreSerializer(serializers.ModelSerializer):
         return obj.invigilator_links.filter(ended_at__isnull=True).values("user_id").distinct().count()
 
 
+class ProviderDropDownSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProviderCentre
+        fields = ["id", "name", "code"]
+        read_only_fields = ["id", "name", "code"]
+
+
+
 # ---------------------------------------------------------------------------
 # Invigilator (read) — flattened User + StaffProfile
 # ---------------------------------------------------------------------------
