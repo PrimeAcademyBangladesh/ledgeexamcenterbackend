@@ -177,8 +177,8 @@ class InvigilatorViewSet(viewsets.ModelViewSet):
 
 
 
-# Proviode dropdown (for assignment UI)
 
+@extend_schema(tags=["Invigilator"], responses={200: envelope_array(ProviderDropDownSerializer, many=True), **DEFAULT_ERROR_RESPONSES})
 class ProviderDropDownView(ListAPIView):
     queryset = ProviderCentre.objects.filter(is_active=True).order_by("name")
     serializer_class = ProviderDropDownSerializer

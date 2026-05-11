@@ -14,14 +14,14 @@ from .views import (
 )
 
 router = DefaultRouter()
-router.register(r"invigilators", InvigilatorViewSet, basename="invigilator")
+router.register(r"", InvigilatorViewSet, basename="invigilator")
 router.register(r"provider-centres", ProviderCentreViewSet, basename="provider-centre")
 
 urlpatterns = [
     path("", include(router.urls)),
-    path("invigilators/dropdown/", ProviderDropDownView.as_view(), name="invigilator-dropdown"),
+    path("dropdown/", ProviderDropDownView.as_view(), name="invigilator-dropdown"),
     path(
-        "invigilators/by-code/<str:code>/",
+        "by-code/<str:code>/",
         InvigilatorByProviderCodeView.as_view(),
         name="invigilator-by-code",
     ),
