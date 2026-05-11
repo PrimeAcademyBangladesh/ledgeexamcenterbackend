@@ -13,12 +13,12 @@ from .views import (
 )
 
 router = DefaultRouter()
-router.register(r"", LearnerViewSet, basename="learner")
+router.register(r"learners", LearnerViewSet, basename="learner")
 router.register(r"enrollments", EnrollmentViewSet, basename="enrollment")
 router.register(r"reasonable-adjustments", ReasonableAdjustmentViewSet, basename="reasonable-adjustment")
 
 urlpatterns = [
     path("", include(router.urls)),
-    path("by-uln/<str:uln>/", LearnerByUlnView.as_view(), name="learner-by-uln"),
+    path("learners/by-uln/<str:uln>/", LearnerByUlnView.as_view(), name="learner-by-uln"),
     path("me/enrollments/", MyEnrollmentsView.as_view(), name="my-enrollments"),
 ]
