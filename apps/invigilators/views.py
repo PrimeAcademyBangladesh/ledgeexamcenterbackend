@@ -30,9 +30,10 @@ from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import serializers as drf_serializers
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.generics import ListAPIView
 
 from apps.exams.serializers import ExamSessionSerializer
 from apps.users.models import Role, StaffProfile
@@ -50,6 +51,7 @@ from .serializers import (
     AvailabilitySerializer,
     InvigilatorSerializer,
     ProviderCentreSerializer,
+    ProviderDropDownSerializer,
     RegisterInvigilatorSerializer,
     UpdateInvigilatorSerializer,
 )
@@ -172,6 +174,17 @@ class InvigilatorViewSet(viewsets.ModelViewSet):
             "end_time":    ser.validated_data["end_time"],
         })
         return Response(AvailabilitySerializer(slot).data, status=status.HTTP_201_CREATED)
+
+
+
+# Proviode dropdown (for assignment UI)
+
+class ProviderDropDownView(ListAPIView):
+    queryset = ProviderCentre.objects.filter(is_active=True).order_by("name")
+    serializer_class = ProviderDropDownSerializer
+    permission_classes = [AllowAny]
+    pagination_class = None 
+
 
 
 # ---------------------------------------------------------------------------
