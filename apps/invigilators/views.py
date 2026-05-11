@@ -28,7 +28,7 @@ from django.db.models import Count, Prefetch, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import extend_schema, extend_schema_view
+from drf_spectacular.utils import extend_schema, extend_schema_view, inline_serializer
 from rest_framework import serializers as drf_serializers
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -57,15 +57,46 @@ from .serializers import (
     RegisterInvigilatorSerializer,
     UpdateInvigilatorSerializer,
 )
+from apps.exams.models import ExamSession
 
 User = get_user_model()
+
+
+# OpenAPI shape for the list response: paginated envelope + summary block.
+_InvigilatorSummary = inline_serializer(
+    name="InvigilatorListSummary",
+    fields={
+        "totalInvigilators": drf_serializers.IntegerField(),
+        "activeInvigilators": drf_serializers.IntegerField(),
+        "inactiveInvigilators": drf_serializers.IntegerField(),
+        "upcomingSessions": drf_serializers.IntegerField(),
+    },
+)
+_InvigilatorListPage = inline_serializer(
+    name="InvigilatorListPage",
+    fields={
+        "count": drf_serializers.IntegerField(),
+        "next": drf_serializers.URLField(allow_null=True, required=False),
+        "previous": drf_serializers.URLField(allow_null=True, required=False),
+        "summary": _InvigilatorSummary,
+        "results": InvigilatorSerializer(many=True),
+    },
+)
+_InvigilatorListEnvelope = inline_serializer(
+    name="InvigilatorListEnvelope",
+    fields={
+        "success": drf_serializers.BooleanField(default=True),
+        "message": drf_serializers.CharField(),
+        "data": _InvigilatorListPage,
+    },
+)
 
 
 # ---------------------------------------------------------------------------
 # /api/invigilators/
 # ---------------------------------------------------------------------------
 @extend_schema_view(
-    list=extend_schema(tags=["Invigilator"], responses={200: envelope_list(InvigilatorSerializer), **DEFAULT_ERROR_RESPONSES}),
+    list=extend_schema(tags=["Invigilator"], responses={200: _InvigilatorListEnvelope, **DEFAULT_ERROR_RESPONSES}),
     retrieve=extend_schema(tags=["Invigilator"], responses={200: envelope_detail(InvigilatorSerializer), **DEFAULT_ERROR_RESPONSES}),
     create=extend_schema(tags=["Invigilator"], request=RegisterInvigilatorSerializer, responses={201: envelope_detail(InvigilatorSerializer), **DEFAULT_ERROR_RESPONSES}),
     partial_update=extend_schema(tags=["Invigilator"], request=UpdateInvigilatorSerializer, responses={200: envelope_detail(InvigilatorSerializer), **DEFAULT_ERROR_RESPONSES}),
@@ -114,6 +145,49 @@ class InvigilatorViewSet(viewsets.ModelViewSet):
         if self.action in ("update", "partial_update"):
             return UpdateInvigilatorSerializer
         return InvigilatorSerializer
+
+    # ----- list with summary block -----
+    def _build_summary(self):
+        """Aggregate counters surfaced alongside the paginated results."""
+        agg = User.objects.filter(role=Role.INVIGILATOR).aggregate(
+            total=Count("id"),
+            active=Count("id", filter=Q(is_active=True)),
+        )
+        total = agg["total"] or 0
+        active = agg["active"] or 0
+        upcoming = 0
+        try:
+            upcoming = ExamSession.objects.filter(
+                status="scheduled",
+                scheduled_date__gte=timezone.localdate(),
+            ).count()
+        except ImportError:
+            pass
+        return {
+            "totalInvigilators": total,
+            "activeInvigilators": active,
+            "inactiveInvigilators": total - active,
+            "upcomingSessions": upcoming,
+        }
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        summary = self._build_summary()
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            response = self.get_paginated_response(serializer.data)
+            # Inject summary as a sibling of count/next/previous/results.
+            response.data = {
+                "count": response.data.get("count"),
+                "next": response.data.get("next"),
+                "previous": response.data.get("previous"),
+                "summary": summary,
+                "results": response.data.get("results", []),
+            }
+            return response
+        serializer = self.get_serializer(queryset, many=True)
+        return Response({"summary": summary, "results": serializer.data})
 
     # ----- soft delete -----
     def destroy(self, request, *args, **kwargs):

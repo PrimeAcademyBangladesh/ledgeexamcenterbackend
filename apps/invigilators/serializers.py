@@ -69,8 +69,6 @@ class InvigilatorSerializer(serializers.ModelSerializer):
     createdAt     = serializers.DateTimeField(source="date_joined", read_only=True)
     assignedSessionCount = serializers.SerializerMethodField()
     upcomingSessionCount = serializers.SerializerMethodField()
-    total_invigitalor = serializers.SerializerMethodField()
-    active_invigilator = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -78,7 +76,7 @@ class InvigilatorSerializer(serializers.ModelSerializer):
             "id", "firstName", "lastName", "email",
             "providerCode", "providerName",
             "isActive", "createdAt", "assignedSessionCount",
-            "upcomingSessionCount", "total_invigitalor", "active_invigilator"
+            "upcomingSessionCount",
         ]
         read_only_fields = ["id", "createdAt", "providerName", "assignedSessionCount"]
 
@@ -109,16 +107,13 @@ class InvigilatorSerializer(serializers.ModelSerializer):
         
     def get_upcomingSessionCount(self, obj) -> int:
         try:
-            now = timezone.now()
-            return ExamSession.objects.filter(invigilator=obj, start_time__gt=now).count()
+            return ExamSession.objects.filter(
+                invigilator=obj,
+                status="scheduled",
+                scheduled_date__gte=timezone.localdate(),
+            ).count()
         except Exception:
             return 0
-
-    def get_total_invigitalor(self, obj) -> int:
-        return User.objects.filter(role=Role.INVIGILATOR).count()
-
-    def get_active_invigilator(self, obj) -> int:
-        return User.objects.filter(role=Role.INVIGILATOR, is_active=True).count()
 
 
 # ---------------------------------------------------------------------------
