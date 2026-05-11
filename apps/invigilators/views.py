@@ -176,15 +176,12 @@ class InvigilatorViewSet(viewsets.ModelViewSet):
         return Response(AvailabilitySerializer(slot).data, status=status.HTTP_201_CREATED)
 
 
-
-# Proviode dropdown (for assignment UI)
-
+@extend_schema(tags=["Invigilator"], responses={200: envelope_array(ProviderDropDownSerializer, many=True), **DEFAULT_ERROR_RESPONSES})
 class ProviderDropDownView(ListAPIView):
     queryset = ProviderCentre.objects.filter(is_active=True).order_by("name")
     serializer_class = ProviderDropDownSerializer
     permission_classes = [AllowAny]
-    pagination_class = None 
-
+    pagination_class = None
 
 
 # ---------------------------------------------------------------------------
