@@ -16,6 +16,8 @@ from .models import (
     InvigilatorProviderLink,
     ProviderCentre,
 )
+from apps.exams.models import ExamSession
+from django.utils import timezone
 
 User = get_user_model()
 
@@ -66,6 +68,9 @@ class InvigilatorSerializer(serializers.ModelSerializer):
     isActive      = serializers.BooleanField(source="is_active")
     createdAt     = serializers.DateTimeField(source="date_joined", read_only=True)
     assignedSessionCount = serializers.SerializerMethodField()
+    upcomingSessionCount = serializers.SerializerMethodField()
+    total_invigitalor = serializers.SerializerMethodField()
+    active_invigilator = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -73,6 +78,7 @@ class InvigilatorSerializer(serializers.ModelSerializer):
             "id", "firstName", "lastName", "email",
             "providerCode", "providerName",
             "isActive", "createdAt", "assignedSessionCount",
+            "upcomingSessionCount", "total_invigitalor", "active_invigilator"
         ]
         read_only_fields = ["id", "createdAt", "providerName", "assignedSessionCount"]
 
@@ -97,10 +103,22 @@ class InvigilatorSerializer(serializers.ModelSerializer):
     def get_assignedSessionCount(self, obj) -> int:
         # Lazy import — avoids circular import with apps.exams.
         try:
-            from apps.exams.models import ExamSession
             return ExamSession.objects.filter(invigilator=obj).count()
         except Exception:
             return 0
+        
+    def get_upcomingSessionCount(self, obj) -> int:
+        try:
+            now = timezone.now()
+            return ExamSession.objects.filter(invigilator=obj, start_time__gt=now).count()
+        except Exception:
+            return 0
+
+    def get_total_invigilator(self, obj) -> int:
+        return User.objects.filter(role=Role.INVIGILATOR).count()
+
+    def get_active_invigilator(self, obj) -> int:
+        return User.objects.filter(role=Role.INVIGILATOR, is_active=True).count()
 
 
 # ---------------------------------------------------------------------------

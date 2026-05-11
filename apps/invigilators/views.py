@@ -11,6 +11,7 @@ DELETE /api/invigilators/{id}/            soft-disable (admin)  -> sets is_activ
 POST   /api/invigilators/{id}/activate/   re-enable (admin)
 POST   /api/invigilators/{id}/deactivate/ disable (admin)
 POST   /api/invigilators/{id}/resend-welcome/   trigger welcome email (admin)
+GET    /api/invigilators/summary/         dashboard counters (total / active / upcoming sessions)
 GET    /api/invigilators/by-code/{code}/  lookup by provider_code
 
 GET    /api/invigilators/me/sessions/     sessions assigned to the logged-in invigilator
@@ -23,8 +24,9 @@ GET/PATCH/DELETE /api/provider-centres/{id}/
 """
 
 from django.contrib.auth import get_user_model
-from django.db.models import Prefetch
+from django.db.models import Count, Prefetch, Q
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import serializers as drf_serializers
@@ -77,6 +79,21 @@ User = get_user_model()
             **DEFAULT_ERROR_RESPONSES,
         },
     ),
+    summary=extend_schema(
+        tags=["Invigilator"],
+        responses={
+            200: envelope_action(
+                {
+                    "total_invigilators": drf_serializers.IntegerField(),
+                    "active": drf_serializers.IntegerField(),
+                    "inactive": drf_serializers.IntegerField(),
+                    "upcoming_sessions": drf_serializers.IntegerField(),
+                },
+                name="InvigilatorSummary",
+            ),
+            **DEFAULT_ERROR_RESPONSES,
+        },
+    ),
 )
 class InvigilatorViewSet(viewsets.ModelViewSet):
     """CRUD for invigilator users."""
@@ -126,6 +143,35 @@ class InvigilatorViewSet(viewsets.ModelViewSet):
         # TODO: integrate with your transactional email provider.
         # email_service.send_welcome(user)
         return Response({"detail": f"Welcome email queued for {user.email}"})
+
+    # ----- /summary/ -----
+    @action(detail=False, methods=["get"], url_path="summary",
+            permission_classes=[IsAuthenticated, IsAdminOrInvigilatorReadOnly])
+    def summary(self, request):
+        """Dashboard counters: total invigilators, active count, and upcoming sessions."""
+        agg = User.objects.filter(role=Role.INVIGILATOR).aggregate(
+            total=Count("id"),
+            active=Count("id", filter=Q(is_active=True)),
+        )
+        total = agg["total"] or 0
+        active = agg["active"] or 0
+
+        upcoming = 0
+        try:
+            from apps.exams.models import ExamSession
+            upcoming = ExamSession.objects.filter(
+                status="scheduled",
+                scheduled_date__gte=timezone.localdate(),
+            ).count()
+        except ImportError:
+            pass
+
+        return Response({
+            "total_invigilators": total,
+            "active": active,
+            "inactive": total - active,
+            "upcoming_sessions": upcoming,
+        })
 
     # ----- /me/sessions/ -----
     @extend_schema(tags=["Invigilator"], responses={200: envelope_array(ExamSessionSerializer, many=True), **DEFAULT_ERROR_RESPONSES})
