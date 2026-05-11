@@ -114,7 +114,7 @@ class InvigilatorSerializer(serializers.ModelSerializer):
         except Exception:
             return 0
 
-    def get_total_invigilator(self, obj) -> int:
+    def get_total_invigitalor(self, obj) -> int:
         return User.objects.filter(role=Role.INVIGILATOR).count()
 
     def get_active_invigilator(self, obj) -> int:
