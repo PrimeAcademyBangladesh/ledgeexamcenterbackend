@@ -8,6 +8,7 @@ from .views import (
     LearnerViewSet,
     LearnerByUlnView,
     EnrollmentViewSet,
+    GenerateUlnView,
     MyEnrollmentsView,
     ReasonableAdjustmentViewSet,
 )
@@ -18,7 +19,10 @@ router.register(r"enrollments", EnrollmentViewSet, basename="enrollment")
 router.register(r"reasonable-adjustments", ReasonableAdjustmentViewSet, basename="reasonable-adjustment")
 
 urlpatterns = [
-    path("", include(router.urls)),
+    # Specific paths must come before the router include — otherwise
+    # `learners/<pk>/` swallows `learners/generate-uln/` and `learners/by-uln/...`.
+    path("learners/generate-uln/", GenerateUlnView.as_view(), name="learner-generate-uln"),
     path("learners/by-uln/<str:uln>/", LearnerByUlnView.as_view(), name="learner-by-uln"),
     path("me/enrollments/", MyEnrollmentsView.as_view(), name="my-enrollments"),
+    path("", include(router.urls)),
 ]

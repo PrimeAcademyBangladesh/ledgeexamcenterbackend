@@ -34,17 +34,18 @@ from django.conf import settings
 from django.shortcuts import get_object_or_404
 from django_filters.rest_framework import DjangoFilterBackend
 
-from rest_framework import generics, status, viewsets
+from rest_framework import generics, serializers as drf_serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter
+from rest_framework.views import APIView
+from drf_spectacular.utils import extend_schema, extend_schema_view, inline_serializer, OpenApiParameter
 
 from core.responses import APIResponse
 from core.email import send_email
 from core.schemas import DEFAULT_ERROR_RESPONSES, EmptyEnvelope, envelope_array, envelope_detail, envelope_list
 
-from apps.users.models import LearnerProfile, Role
+from apps.users.models import LearnerProfile, Role, generate_uln
 
 from .models import Enrollment, ReasonableAdjustment
 from .serializers import (
@@ -171,6 +172,44 @@ class LearnerViewSet(viewsets.GenericViewSet):
             },
         )
         return APIResponse.ok(message="Welcome email re-sent")
+
+
+_GenerateUlnEnvelope = inline_serializer(
+    name="GenerateUlnEnvelope",
+    fields={
+        "success": drf_serializers.BooleanField(default=True),
+        "message": drf_serializers.CharField(),
+        "data": inline_serializer(
+            name="GenerateUlnData",
+            fields={"uln": drf_serializers.RegexField(r"^\d{10}$")},
+        ),
+    },
+)
+
+
+@extend_schema(
+    tags=["Learners"],
+    summary="Generate a fresh, DB-unique 10-digit ULN",
+    responses={200: _GenerateUlnEnvelope, **DEFAULT_ERROR_RESPONSES},
+)
+class GenerateUlnView(APIView):
+    """
+    Returns a unique 10-digit ULN suggestion. Nothing persisted —
+    the frontend uses this to prefill the register-learner modal.
+    Uniqueness is enforced again on POST in case the admin overrides.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        for _ in range(10):
+            candidate = generate_uln()
+            if not LearnerProfile.objects.filter(uln=candidate).exists():
+                return APIResponse.ok(data={"uln": candidate})
+        return APIResponse.fail(
+            message="Could not allocate a unique ULN. Try again.",
+            errors={"uln": ["allocation failed"]},
+            status=503,
+        )
 
 
 @extend_schema(tags=["Learners"], responses={200: envelope_detail(LearnerSerializer), **DEFAULT_ERROR_RESPONSES})

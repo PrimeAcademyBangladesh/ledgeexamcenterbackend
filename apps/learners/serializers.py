@@ -15,6 +15,8 @@ from rest_framework import serializers
 
 from apps.users.models import User, LearnerProfile, Role
 from apps.qualifications.models import Qualification
+from apps.exams.models import ExamConfig
+from apps.exams.services import create_scheduled_session
 
 from .models import (
     Enrollment,
@@ -87,19 +89,32 @@ class RegisterLearnerSerializer(serializers.Serializer):
     """
     Mirrors `RegisterLearnerRequest` in src/services/api/types.ts.
 
-    Creates User → triggers signal → LearnerProfile auto-created
-    → then we attach ULN/DOB/phone and an Enrollment.
+    One atomic POST creates: User → LearnerProfile (ULN set) →
+    Enrollment → ExamSession (with PIN window).
     """
+    # ----- learner identity -----
     firstName = serializers.CharField(source="first_name", max_length=80)
     lastName = serializers.CharField(source="last_name", max_length=80)
     email = serializers.EmailField()
-    qualificationId = serializers.UUIDField(source="qualification_id")
-    cohort = serializers.CharField(required=False, allow_blank=True, max_length=40)
-    employer = serializers.CharField(required=False, allow_blank=True, max_length=200)
+    uln = serializers.CharField(validators=[uln_validator])
     password = serializers.CharField(write_only=True, min_length=8)
     dateOfBirth = serializers.DateField(source="date_of_birth", required=False, allow_null=True)
     phone = serializers.CharField(required=False, allow_blank=True, max_length=20)
 
+    # ----- enrollment -----
+    qualificationId = serializers.UUIDField(source="qualification_id")
+    cohort = serializers.CharField(required=False, allow_blank=True, max_length=40)
+    employer = serializers.CharField(required=False, allow_blank=True, max_length=200)
+
+    # ----- first exam session -----
+    knowledgeTestId = serializers.UUIDField(source="exam_config_id")
+    invigilatorId = serializers.UUIDField(source="invigilator_id")
+    testDate = serializers.DateField(source="scheduled_date")
+    testTime = serializers.TimeField(source="scheduled_time")
+    allowImmediateStart = serializers.BooleanField(source="allow_immediate_start", default=False)
+    pin = serializers.RegexField(r"^\d{6}$")
+
+    # ----- validation -----
     def validate_email(self, value):
         value = value.lower()
         if User.objects.filter(email=value).exists():
@@ -110,20 +125,44 @@ class RegisterLearnerSerializer(serializers.Serializer):
         validate_password(value)
         return value
 
+    def validate_uln(self, value):
+        if LearnerProfile.objects.filter(uln=value).exists():
+            raise serializers.ValidationError("ULN already in use.")
+        return value
+
     def validate_qualificationId(self, value):
         if not Qualification.objects.filter(pk=value, is_active=True).exists():
             raise serializers.ValidationError("Qualification not found or inactive.")
         return value
 
+    def validate_knowledgeTestId(self, value):
+        if not ExamConfig.objects.filter(pk=value, status="published").exists():
+            raise serializers.ValidationError("Knowledge test not found or unpublished.")
+        return value
+
+    def validate_invigilatorId(self, value):
+        if not User.objects.filter(pk=value, role=Role.INVIGILATOR, is_active=True).exists():
+            raise serializers.ValidationError("Invigilator not found or inactive.")
+        return value
+
     @transaction.atomic
     def create(self, validated):
         password = validated.pop("password")
+        uln = validated.pop("uln")
         qualification_id = validated.pop("qualification_id")
         cohort = validated.pop("cohort", "") or "default"
         employer = validated.pop("employer", "") or ""
         date_of_birth = validated.pop("date_of_birth", None)
         phone = validated.pop("phone", "") or ""
 
+        exam_config_id = validated.pop("exam_config_id")
+        invigilator_id = validated.pop("invigilator_id")
+        scheduled_date = validated.pop("scheduled_date")
+        scheduled_time = validated.pop("scheduled_time")
+        allow_immediate_start = validated.pop("allow_immediate_start", False)
+        pin = validated.pop("pin")
+
+        # 1. User + LearnerProfile (profile auto-created by post_save signal)
         user = User.objects.create_user(
             email=validated["email"],
             password=password,
@@ -131,21 +170,35 @@ class RegisterLearnerSerializer(serializers.Serializer):
             last_name=validated["last_name"],
             role=Role.LEARNER,
         )
-
-        # Signal already created LearnerProfile — fetch & enrich.
-        # ULN auto-generates in LearnerProfile.save() when blank.
         profile = user.learner_profile
+        profile.uln = uln  # admin-provided or pre-filled from /generate-uln/
         if date_of_birth:
             profile.date_of_birth = date_of_birth
         if phone:
             profile.phone = phone
         profile.save()
 
+        # 2. Enrollment
         Enrollment.objects.create(
             learner=profile,
             qualification_id=qualification_id,
             cohort=cohort,
             employer=employer,
+        )
+
+        # 3. First scheduled ExamSession (PIN window = scheduled - 5min,
+        #    or now() if allow_immediate_start). Re-raises on any failure
+        #    so the whole atomic block rolls back — no orphan learners.
+        exam_config = ExamConfig.objects.get(pk=exam_config_id)
+        invigilator = User.objects.get(pk=invigilator_id)
+        create_scheduled_session(
+            exam_config=exam_config,
+            learner=user,
+            invigilator=invigilator,
+            scheduled_date=scheduled_date,
+            scheduled_time=scheduled_time,
+            pin=pin,
+            allow_immediate_start=allow_immediate_start,
         )
 
         return profile

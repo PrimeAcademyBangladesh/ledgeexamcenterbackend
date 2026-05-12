@@ -87,14 +87,24 @@ def _generate_pin() -> str:
     return f"{random.randint(0, 999_999):06d}"
 
 
-def _compute_pin_window(scheduled_date, scheduled_time, exam_config, extra_minutes=0):
-    start_dt = datetime.combine(
-        scheduled_date, scheduled_time, tzinfo=dt_tz.utc
-    )
-    return (
-        start_dt - timedelta(minutes=5),
-        start_dt + timedelta(minutes=exam_config.time_limit_minutes + (extra_minutes or 0)),
-    )
+def _compute_pin_window(
+    scheduled_date, scheduled_time, exam_config,
+    extra_minutes=0, allow_immediate_start=False,
+):
+    """
+    Returns (pin_window_start, pin_window_end).
+
+    Default:    [scheduled - 5min, scheduled + duration + extra]
+    Sit-now:    [now,              now       + duration + extra]
+                — the learner can use the PIN immediately; scheduled
+                  date/time becomes informational only.
+    """
+    duration = timedelta(minutes=exam_config.time_limit_minutes + (extra_minutes or 0))
+    if allow_immediate_start:
+        start_dt = timezone.now()
+        return start_dt, start_dt + duration
+    start_dt = datetime.combine(scheduled_date, scheduled_time, tzinfo=dt_tz.utc)
+    return start_dt - timedelta(minutes=5), start_dt + duration
 
 
 @transaction.atomic
@@ -110,7 +120,9 @@ def create_scheduled_session(
     exam_config = ExamConfig.objects.select_for_update().get(pk=exam_config.pk)
 
     pin_start, pin_end = _compute_pin_window(
-        scheduled_date, scheduled_time, exam_config, extra_time_minutes or 0
+        scheduled_date, scheduled_time, exam_config,
+        extra_minutes=extra_time_minutes or 0,
+        allow_immediate_start=allow_immediate_start,
     )
 
     session = ExamSession.objects.create(

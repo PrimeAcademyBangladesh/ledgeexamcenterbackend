@@ -69,6 +69,7 @@ from .serializers import (
     CreateResitSessionSerializer, DenyRetakeSerializer,
 )
 from .services import (
+    _generate_pin,
     create_scheduled_session, select_questions_for_learner,
     score_submission, is_resit_eligible,
 )
@@ -917,6 +918,32 @@ class CreateResitSessionView(APIView):
             message="Resit session created successfully.",
             status=201
         )
+
+
+_GeneratePinEnvelope = inline_serializer(
+    name="GeneratePinEnvelope",
+    fields={
+        "success": drf_serializers.BooleanField(default=True),
+        "message": drf_serializers.CharField(),
+        "data": inline_serializer(
+            name="GeneratePinData",
+            fields={"pin": drf_serializers.RegexField(r"^\d{6}$")},
+        ),
+    },
+)
+
+
+@extend_schema(
+    tags=["Exam"],
+    summary="Generate a fresh 6-digit exam PIN",
+    responses={200: _GeneratePinEnvelope, **DEFAULT_ERROR_RESPONSES},
+)
+class GenerateExamPinView(APIView):
+    """Returns a fresh 6-digit PIN. Nothing persisted — pure preview."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        return APIResponse.ok(data={"pin": _generate_pin()})
 
 
 class ExamDropdownViewSet(ListAPIView):
