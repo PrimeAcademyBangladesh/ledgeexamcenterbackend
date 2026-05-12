@@ -31,26 +31,56 @@ class ProviderCentreSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProviderCentre
         fields = [
-            "id", "name", "code",
-            "contact_email", "contact_phone",
-            "address_line1", "address_line2", "city", "postcode", "country",
-            "is_active", "notes",
-            "created_at", "updated_at",
+            "id",
+            "name",
+            "code",
+            "contact_email",
+            "contact_phone",
+            "address_line1",
+            "address_line2",
+            "city",
+            "postcode",
+            "country",
+            "is_active",
+            "notes",
+            "created_at",
+            "updated_at",
             "qualificationCount",
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
 
     def get_qualificationCount(self, obj) -> int:
         # Number of distinct invigilators currently linked.
-        return obj.invigilator_links.filter(ended_at__isnull=True).values("user_id").distinct().count()
+        return (
+            obj.invigilator_links.filter(ended_at__isnull=True)
+            .values("user_id")
+            .distinct()
+            .count()
+        )
 
 
-class ProviderDropDownSerializer(serializers.ModelSerializer):
+class InvigilatorDropDownSerializer(serializers.ModelSerializer):
+    name = serializers.SerializerMethodField()
+    # firstName = serializers.CharField(source="first_name")
+    # lastName = serializers.CharField(source="last_name")
+    code = serializers.SerializerMethodField()
+
     class Meta:
-        model = ProviderCentre
-        fields = ["id", "name", "code"]
-        read_only_fields = ["id", "name", "code"]
+        model = User
+        fields = ["id", "name",  "code"]
+        read_only_fields = fields
 
+    def _primary_link(self, obj) -> InvigilatorProviderLink | None:
+        links = [l for l in obj.provider_links.all() if l.ended_at is None]
+        links.sort(key=lambda l: (not l.is_primary, l.provider.name))
+        return links[0] if links else None
+
+    def get_name(self, obj) -> str:
+        return f"{obj.first_name} {obj.last_name}"
+
+    def get_code(self, obj) -> str:
+        link = self._primary_link(obj)
+        return link.provider.code if link else ""
 
 
 # ---------------------------------------------------------------------------
@@ -61,21 +91,28 @@ class InvigilatorSerializer(serializers.ModelSerializer):
     Output shape matches the frontend `Invigilator` interface:
         { id, firstName, lastName, email, providerCode, isActive, createdAt }
     """
-    firstName     = serializers.CharField(source="first_name")
-    lastName      = serializers.CharField(source="last_name")
-    providerCode  = serializers.SerializerMethodField()
-    providerName  = serializers.SerializerMethodField()
-    isActive      = serializers.BooleanField(source="is_active")
-    createdAt     = serializers.DateTimeField(source="date_joined", read_only=True)
+
+    firstName = serializers.CharField(source="first_name")
+    lastName = serializers.CharField(source="last_name")
+    providerCode = serializers.SerializerMethodField()
+    providerName = serializers.SerializerMethodField()
+    isActive = serializers.BooleanField(source="is_active")
+    createdAt = serializers.DateTimeField(source="date_joined", read_only=True)
     assignedSessionCount = serializers.SerializerMethodField()
     upcomingSessionCount = serializers.SerializerMethodField()
 
     class Meta:
         model = User
         fields = [
-            "id", "firstName", "lastName", "email",
-            "providerCode", "providerName",
-            "isActive", "createdAt", "assignedSessionCount",
+            "id",
+            "firstName",
+            "lastName",
+            "email",
+            "providerCode",
+            "providerName",
+            "isActive",
+            "createdAt",
+            "assignedSessionCount",
             "upcomingSessionCount",
         ]
         read_only_fields = ["id", "createdAt", "providerName", "assignedSessionCount"]
@@ -83,8 +120,7 @@ class InvigilatorSerializer(serializers.ModelSerializer):
     # ----- helpers -----
     def _primary_link(self, obj) -> InvigilatorProviderLink | None:
         return (
-            obj.provider_links
-            .filter(ended_at__isnull=True)
+            obj.provider_links.filter(ended_at__isnull=True)
             .select_related("provider")
             .order_by("-is_primary", "provider__name")
             .first()
@@ -104,7 +140,7 @@ class InvigilatorSerializer(serializers.ModelSerializer):
             return ExamSession.objects.filter(invigilator=obj).count()
         except Exception:
             return 0
-        
+
     def get_upcomingSessionCount(self, obj) -> int:
         try:
             return ExamSession.objects.filter(
@@ -127,16 +163,19 @@ class RegisterInvigilatorSerializer(serializers.Serializer):
       3. We attach provider_code to StaffProfile
       4. (Optional) creates InvigilatorProviderLink to the matching ProviderCentre
     """
-    firstName     = serializers.CharField(write_only=True, max_length=150)
-    lastName      = serializers.CharField(write_only=True, max_length=150)
-    email         = serializers.EmailField(write_only=True)
-    providerCode  = serializers.CharField(write_only=True, max_length=20)
-    password      = serializers.CharField(write_only=True, min_length=8)
+
+    firstName = serializers.CharField(write_only=True, max_length=150)
+    lastName = serializers.CharField(write_only=True, max_length=150)
+    email = serializers.EmailField(write_only=True)
+    providerCode = serializers.CharField(write_only=True, max_length=20)
+    password = serializers.CharField(write_only=True, min_length=8)
 
     # ---- validation ----
     def validate_email(self, value):
         if User.objects.filter(email__iexact=value).exists():
-            raise serializers.ValidationError("An account with this email already exists.")
+            raise serializers.ValidationError(
+                "An account with this email already exists."
+            )
         return value.lower()
 
     def validate_providerCode(self, value):
@@ -148,7 +187,9 @@ class RegisterInvigilatorSerializer(serializers.Serializer):
         provider = ProviderCentre.objects.filter(code=validated["providerCode"]).first()
         if not provider:
             raise serializers.ValidationError(
-                {"providerCode": f"No provider centre with code {validated['providerCode']}."}
+                {
+                    "providerCode": f"No provider centre with code {validated['providerCode']}."
+                }
             )
 
         user = User.objects.create_user(
@@ -177,11 +218,11 @@ class RegisterInvigilatorSerializer(serializers.Serializer):
 # Update Invigilator (admin edit dialog)
 # ---------------------------------------------------------------------------
 class UpdateInvigilatorSerializer(serializers.Serializer):
-    firstName     = serializers.CharField(max_length=150, required=False)
-    lastName      = serializers.CharField(max_length=150, required=False)
-    email         = serializers.EmailField(required=False)
-    providerCode  = serializers.CharField(max_length=20, required=False)
-    isActive      = serializers.BooleanField(required=False)
+    firstName = serializers.CharField(max_length=150, required=False)
+    lastName = serializers.CharField(max_length=150, required=False)
+    email = serializers.EmailField(required=False)
+    providerCode = serializers.CharField(max_length=20, required=False)
+    isActive = serializers.BooleanField(required=False)
 
     def validate_email(self, value):
         instance: User = self.instance
@@ -194,10 +235,12 @@ class UpdateInvigilatorSerializer(serializers.Serializer):
 
     @transaction.atomic
     def update(self, instance: User, validated):
-        for src, dst in (("firstName", "first_name"),
-                         ("lastName", "last_name"),
-                         ("email", "email"),
-                         ("isActive", "is_active")):
+        for src, dst in (
+            ("firstName", "first_name"),
+            ("lastName", "last_name"),
+            ("email", "email"),
+            ("isActive", "is_active"),
+        ):
             if src in validated:
                 setattr(instance, dst, validated[src])
         instance.save()
@@ -212,10 +255,13 @@ class UpdateInvigilatorSerializer(serializers.Serializer):
             # Mark previous primary link inactive (if it points elsewhere) and
             # upsert the link to the requested provider.
             InvigilatorProviderLink.objects.filter(
-                user=instance, is_primary=True, ended_at__isnull=True,
+                user=instance,
+                is_primary=True,
+                ended_at__isnull=True,
             ).exclude(provider=provider).update(is_primary=False)
             link, created = InvigilatorProviderLink.objects.get_or_create(
-                user=instance, provider=provider,
+                user=instance,
+                provider=provider,
                 defaults={"is_primary": True},
             )
             if not created:
@@ -235,8 +281,8 @@ class UpdateInvigilatorSerializer(serializers.Serializer):
 class AvailabilitySerializer(serializers.ModelSerializer):
     dayOfWeek = serializers.IntegerField(source="day_of_week")
     startTime = serializers.TimeField(source="start_time")
-    endTime   = serializers.TimeField(source="end_time")
-    isActive  = serializers.BooleanField(source="is_active")
+    endTime = serializers.TimeField(source="end_time")
+    isActive = serializers.BooleanField(source="is_active")
 
     class Meta:
         model = InvigilatorAvailability

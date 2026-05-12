@@ -32,7 +32,7 @@ from drf_spectacular.utils import extend_schema, extend_schema_view, inline_seri
 from rest_framework import serializers as drf_serializers
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.generics import ListAPIView
@@ -51,9 +51,9 @@ from .models import (
 from .permissions import IsAdmin, IsAdminOrInvigilatorReadOnly, IsSelfOrAdmin
 from .serializers import (
     AvailabilitySerializer,
+    InvigilatorDropDownSerializer,
     InvigilatorSerializer,
     ProviderCentreSerializer,
-    ProviderDropDownSerializer,
     RegisterInvigilatorSerializer,
     UpdateInvigilatorSerializer,
 )
@@ -296,11 +296,22 @@ class InvigilatorViewSet(viewsets.ModelViewSet):
         return Response(AvailabilitySerializer(slot).data, status=status.HTTP_201_CREATED)
 
 
-@extend_schema(tags=["Invigilator"], responses={200: envelope_array(ProviderDropDownSerializer, many=True), **DEFAULT_ERROR_RESPONSES})
-class ProviderDropDownView(ListAPIView):
-    queryset = ProviderCentre.objects.filter(is_active=True).order_by("name")
-    serializer_class = ProviderDropDownSerializer
-    permission_classes = [AllowAny]
+@extend_schema(tags=["Invigilator"], responses={200: envelope_array(InvigilatorDropDownSerializer, many=True), **DEFAULT_ERROR_RESPONSES})
+class InvigilatorDropDownView(ListAPIView):
+    queryset = (
+        User.objects.filter(is_active=True, role=Role.INVIGILATOR)
+        .prefetch_related(
+            Prefetch(
+                "provider_links",
+                queryset=InvigilatorProviderLink.objects
+                    .filter(ended_at__isnull=True)
+                    .select_related("provider"),
+            )
+        )
+        .order_by("first_name", "last_name")
+    )
+    serializer_class = InvigilatorDropDownSerializer
+    permission_classes = [IsAuthenticated, IsAdminOrInvigilatorReadOnly]
     pagination_class = None
 
 

@@ -10,7 +10,7 @@ from .views import (
     InvigilatorByProviderCodeView,
     InvigilatorViewSet,
     ProviderCentreViewSet,
-    ProviderDropDownView,
+    InvigilatorDropDownView,
 )
 
 router = DefaultRouter()
@@ -19,7 +19,7 @@ router.register(r"provider-centres", ProviderCentreViewSet, basename="provider-c
 router.register(r"", InvigilatorViewSet, basename="invigilator")
 
 urlpatterns = [
-    path("dropdown/", ProviderDropDownView.as_view(), name="invigilator-dropdown"),
+    path("dropdown/", InvigilatorDropDownView.as_view(), name="invigilator-dropdown"),
     path(
         "by-code/<str:code>/",
         InvigilatorByProviderCodeView.as_view(),

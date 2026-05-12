@@ -12,7 +12,6 @@ model. Override `owner_field` / `invigilator_field` on the view to customise.
 """
 from rest_framework.permissions import BasePermission, SAFE_METHODS
 
-
 # ────────────────────────────────────────────────────────────
 #  Role constants & helpers
 # ────────────────────────────────────────────────────────────
@@ -312,3 +311,23 @@ class RoleScopedAccess(BasePermission):
         if role == LEARNER:
             return getattr(obj, f"{owner_field}_id", None) == uid
         return False
+
+
+class IsAdminOrInvigilatorReadOnly(IsAdminOrReadOnlyForStaff):
+    """
+    Admin: full access. Invigilator: read-only. Learner: denied.
+
+    Compatibility name for invigilator views; equivalent to
+    IsAdminOrReadOnlyForStaff.
+    """
+
+
+class IsSelfOrAdmin(BasePermission):
+    """Object-level: an invigilator can only see/edit themselves; admin sees all."""
+    def has_object_permission(self, request, view, obj):
+        role = _role(request.user)
+        if role is None:
+            return False
+        if role == ADMIN:
+            return True
+        return obj.pk == request.user.pk
