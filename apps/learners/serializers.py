@@ -93,7 +93,6 @@ class RegisterLearnerSerializer(serializers.Serializer):
     firstName = serializers.CharField(source="first_name", max_length=80)
     lastName = serializers.CharField(source="last_name", max_length=80)
     email = serializers.EmailField()
-    uln = serializers.CharField(required=False, allow_blank=True, validators=[uln_validator])
     qualificationId = serializers.UUIDField(source="qualification_id")
     cohort = serializers.CharField(required=False, allow_blank=True, max_length=40)
     employer = serializers.CharField(required=False, allow_blank=True, max_length=200)
@@ -119,7 +118,6 @@ class RegisterLearnerSerializer(serializers.Serializer):
     @transaction.atomic
     def create(self, validated):
         password = validated.pop("password")
-        uln = validated.pop("uln", None) or None
         qualification_id = validated.pop("qualification_id")
         cohort = validated.pop("cohort", "") or "default"
         employer = validated.pop("employer", "") or ""
@@ -134,10 +132,9 @@ class RegisterLearnerSerializer(serializers.Serializer):
             role=Role.LEARNER,
         )
 
-        # Signal already created LearnerProfile — fetch & enrich
+        # Signal already created LearnerProfile — fetch & enrich.
+        # ULN auto-generates in LearnerProfile.save() when blank.
         profile = user.learner_profile
-        if uln:
-            profile.uln = uln
         if date_of_birth:
             profile.date_of_birth = date_of_birth
         if phone:

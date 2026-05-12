@@ -6,6 +6,8 @@ either by djangorestframework-camel-case OR by the React Axios interceptor.
 Do not enable both at the same time.
 """
 
+from symtable import Class
+
 from drf_spectacular.utils import extend_schema_field, inline_serializer
 from rest_framework import serializers
 from django.utils import timezone
@@ -77,6 +79,13 @@ class ExamConfigSerializer(serializers.ModelSerializer):
             if not (attrs["grade_pass"] < attrs["grade_merit"] < attrs["grade_distinction"]):
                 raise serializers.ValidationError("Pass < Merit < Distinction is required")
         return attrs
+
+
+class ExamDropdownSerializer(serializers.ModelSerializer):
+     class Meta:
+        model = ExamConfig
+        fields = ["id", "title"]
+
 
 
 # ---------------------------------------------------------------------------

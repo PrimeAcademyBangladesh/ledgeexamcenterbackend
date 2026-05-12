@@ -26,6 +26,7 @@ from .views import (
     CreateResitSessionView,
     DenyRetakeView,
     ExamConfigViewSet,
+    ExamDropdownViewSet,
     ExamResultViewSet,
     ExamSessionViewSet,
     MockExamListView,
@@ -45,7 +46,7 @@ router.register(r"retakes", RetakeRequestViewSet, basename="retake")
 router.register(r"", ExamConfigViewSet, basename="exam")
 
 urlpatterns = [
-    # Mock exams (must come before the empty-prefix router so /mock/ isn't captured as a detail PK).
+    path("dropdown/", ExamDropdownViewSet.as_view(), name="exam-dropdown"),
     path("mock/", MockExamListView.as_view(), name="exam-mock-list"),
     path("mock/<uuid:exam_id>/start/", MockExamStartView.as_view(), name="exam-mock-start"),
 

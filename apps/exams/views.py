@@ -58,6 +58,7 @@ from core.permission import (
 from core.responses import APIResponse
 from .serializers import (
     ExamConfigSerializer,
+    ExamDropdownSerializer,
     ExamSessionSerializer, CreateExamSessionSerializer, UpdateSessionPinSerializer,
     ValidatePinRequestSerializer, ValidatePinResponseSerializer,
     SaveExamDraftSerializer, ExamDraftSerializer,
@@ -71,6 +72,8 @@ from .services import (
     create_scheduled_session, select_questions_for_learner,
     score_submission, is_resit_eligible,
 )
+from .serializers import ExamDropdownSerializer
+from rest_framework.generics import ListAPIView
 
 
 TAG_EXAM_CONFIG = "Exam Config"
@@ -914,3 +917,16 @@ class CreateResitSessionView(APIView):
             message="Resit session created successfully.",
             status=201
         )
+
+
+class ExamDropdownViewSet(ListAPIView):
+    """
+    Provides a minimal list of exams for dropdowns and selectors.
+
+    This is intentionally not a full ModelViewSet to avoid accidentally
+    exposing create/update/delete endpoints on the ExamConfig model.
+    """
+    queryset = ExamConfig.objects.filter(status="published").select_related("qualification")
+    serializer_class = ExamDropdownSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = None
