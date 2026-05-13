@@ -39,6 +39,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.generics import ListAPIView
 from drf_spectacular.utils import extend_schema, extend_schema_view, inline_serializer, OpenApiParameter
 
 from core.responses import APIResponse
@@ -49,7 +50,9 @@ from apps.users.models import LearnerProfile, Role, generate_uln
 
 from .models import Enrollment, ReasonableAdjustment
 from .serializers import (
+    LearnerDropDownSerializer,
     LearnerSerializer,
+    LearnerDetailSerializer,
     RegisterLearnerSerializer,
     UpdateLearnerSerializer,
     EnrollmentSerializer,
@@ -90,7 +93,24 @@ class LearnerViewSet(viewsets.GenericViewSet):
             return RegisterLearnerSerializer
         if self.action in ("partial_update", "update"):
             return UpdateLearnerSerializer
+        if self.action == "retrieve":
+            return LearnerDetailSerializer
         return LearnerSerializer
+
+    def _detail_queryset(self):
+        # Detail page nests enrollments, exam sessions, and reasonable
+        # adjustments. Prefetch every relation the serializer touches so the
+        # whole response runs in a constant number of queries.
+        return (
+            LearnerProfile.objects
+            .select_related("user")
+            .prefetch_related(
+                "enrollments__qualification",
+                "reasonable_adjustments",
+                "user__exam_sessions_as_learner__exam_config",
+                "user__exam_sessions_as_learner__invigilator",
+            )
+        )
 
     def list(self, request):
         qs = self.filter_queryset(self.get_queryset())
@@ -101,8 +121,8 @@ class LearnerViewSet(viewsets.GenericViewSet):
         return APIResponse.ok(data=data, message="Learners retrieved")
 
     def retrieve(self, request, user_id=None):
-        profile = get_object_or_404(self.get_queryset(), user_id=user_id)
-        return APIResponse.ok(data=LearnerSerializer(profile).data)
+        profile = get_object_or_404(self._detail_queryset(), user_id=user_id)
+        return APIResponse.ok(data=LearnerDetailSerializer(profile).data)
 
     def create(self, request):
         if request.user.role != Role.ADMIN:
@@ -185,6 +205,16 @@ _GenerateUlnEnvelope = inline_serializer(
         ),
     },
 )
+
+
+class LearnerDropDownViewSet(ListAPIView):
+    """
+    GET /api/learners/dropdown/ — returns all learners in a {id: name} format for dropdowns.
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = LearnerDropDownSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = None
 
 
 @extend_schema(

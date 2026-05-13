@@ -957,3 +957,5 @@ class ExamDropdownViewSet(ListAPIView):
     serializer_class = ExamDropdownSerializer
     permission_classes = [IsAuthenticated]
     pagination_class = None
+
+

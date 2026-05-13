@@ -82,6 +82,120 @@ class LearnerSerializer(serializers.ModelSerializer):
 
 
 # ─────────────────────────────────────────────────────────────
+# READ — Learner detail (single learner view modal)
+# ─────────────────────────────────────────────────────────────
+
+class _NestedEnrollmentSerializer(serializers.Serializer):
+    """Read-only nested view of an Enrollment for the learner detail page."""
+    id = serializers.UUIDField()
+    qualificationId = serializers.UUIDField(source="qualification_id")
+    qualificationName = serializers.CharField(source="qualification.title")
+    qualificationCode = serializers.CharField(source="qualification.code")
+    cohort = serializers.CharField()
+    employer = serializers.CharField()
+    status = serializers.CharField()
+    enrolledAt = serializers.DateTimeField(source="enrolled_at")
+    expectedEndDate = serializers.DateField(source="expected_end_date", allow_null=True)
+    completedAt = serializers.DateTimeField(source="completed_at", allow_null=True)
+    withdrawnAt = serializers.DateTimeField(source="withdrawn_at", allow_null=True)
+    withdrawalReason = serializers.CharField(source="withdrawal_reason", allow_blank=True)
+
+
+class _NestedExamSessionSerializer(serializers.Serializer):
+    """Read-only nested view of an ExamSession for the learner detail page."""
+    id = serializers.UUIDField()
+    examConfigId = serializers.UUIDField(source="exam_config_id")
+    examTitle = serializers.CharField(source="exam_config.title")
+    scheduledDate = serializers.DateField(source="scheduled_date")
+    scheduledTime = serializers.TimeField(source="scheduled_time")
+    invigilatorId = serializers.UUIDField(source="invigilator_id")
+    invigilatorName = serializers.SerializerMethodField()
+    pin = serializers.CharField()
+    pinActive = serializers.BooleanField(source="pin_active")
+    pinWindowStart = serializers.DateTimeField(source="pin_window_start", allow_null=True)
+    pinWindowEnd = serializers.DateTimeField(source="pin_window_end", allow_null=True)
+    allowImmediateStart = serializers.BooleanField(source="allow_immediate_start")
+    status = serializers.CharField()
+    idVerified = serializers.BooleanField(source="id_verified")
+    completedSuccessfully = serializers.BooleanField(source="completed_successfully", allow_null=True)
+    extraTimeMinutes = serializers.IntegerField(source="extra_time_minutes", allow_null=True)
+    startedAt = serializers.DateTimeField(source="started_at", allow_null=True)
+    submittedAt = serializers.DateTimeField(source="submitted_at", allow_null=True)
+    createdAt = serializers.DateTimeField(source="created_at")
+
+    @extend_schema_field(serializers.CharField())
+    def get_invigilatorName(self, obj) -> str:
+        u = obj.invigilator
+        return f"{u.first_name} {u.last_name}".strip()
+
+
+class _NestedReasonableAdjustmentSerializer(serializers.Serializer):
+    """Read-only nested RA row."""
+    id = serializers.UUIDField()
+    notes = serializers.CharField()
+    accepted = serializers.BooleanField()
+    denied = serializers.BooleanField()
+    denialReason = serializers.CharField(source="denial_reason", allow_blank=True)
+    extraTimeMinutes = serializers.IntegerField(source="extra_time_minutes")
+    createdAt = serializers.DateTimeField(source="created_at")
+
+
+class LearnerDetailSerializer(LearnerSerializer):
+    """
+    Used only by GET /learner/learners/{id}/.
+    Adds every related entity (enrollments, exam sessions, reasonable
+    adjustments) read-only so the admin's view modal has a single round-trip.
+    """
+    idDocument = serializers.SerializerMethodField()
+    enrollments = _NestedEnrollmentSerializer(many=True, read_only=True)
+    examSessions = serializers.SerializerMethodField()
+    reasonableAdjustments = _NestedReasonableAdjustmentSerializer(
+        many=True, read_only=True, source="reasonable_adjustments",
+    )
+
+    class Meta(LearnerSerializer.Meta):
+        fields = LearnerSerializer.Meta.fields + [
+            "idDocument", "enrollments", "examSessions", "reasonableAdjustments",
+        ]
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_idDocument(self, obj) -> str | None:
+        return obj.id_document.url if obj.id_document else None
+
+    @extend_schema_field(_NestedExamSessionSerializer(many=True))
+    def get_examSessions(self, obj):
+        # FK lives on User, not LearnerProfile.
+        sessions = obj.user.exam_sessions_as_learner.all()
+        return _NestedExamSessionSerializer(sessions, many=True, context=self.context).data
+
+
+# ─────────────────────────────────────────────────────────────
+# READ — Learner dropdown (admin pickers)
+# ─────────────────────────────────────────────────────────────
+
+class LearnerDropDownSerializer(serializers.ModelSerializer):
+    """
+    Minimal shape for admin <select> pickers — id (User UUID),
+    display name, learnerId (LE-YY-XXXXXX), and ULN.
+    """
+    name = serializers.SerializerMethodField()
+    firstName = serializers.CharField(source="user.first_name")
+    lastName = serializers.CharField(source="user.last_name")
+    learnerId = serializers.CharField(source="learner_id")
+
+    class Meta:
+        model = LearnerProfile
+        fields = ["id", "name", "firstName", "lastName", "learnerId", "uln"]
+        read_only_fields = fields
+
+    id = serializers.UUIDField(source="user_id", read_only=True)
+
+    @extend_schema_field(serializers.CharField())
+    def get_name(self, obj) -> str:
+        return f"{obj.user.first_name} {obj.user.last_name}".strip()
+
+
+# ─────────────────────────────────────────────────────────────
 # WRITE — Register Learner (AdminLearners modal)
 # ─────────────────────────────────────────────────────────────
 
@@ -162,7 +276,6 @@ class RegisterLearnerSerializer(serializers.Serializer):
         allow_immediate_start = validated.pop("allow_immediate_start", False)
         pin = validated.pop("pin")
 
-        # 1. User + LearnerProfile (profile auto-created by post_save signal)
         user = User.objects.create_user(
             email=validated["email"],
             password=password,
@@ -171,7 +284,7 @@ class RegisterLearnerSerializer(serializers.Serializer):
             role=Role.LEARNER,
         )
         profile = user.learner_profile
-        profile.uln = uln  # admin-provided or pre-filled from /generate-uln/
+        profile.uln = uln
         if date_of_birth:
             profile.date_of_birth = date_of_birth
         if phone:
@@ -204,15 +317,36 @@ class RegisterLearnerSerializer(serializers.Serializer):
         return profile
 
 
+
+class LearnerDropDownSerializer(serializers.ModelSerializer):
+    """
+    Minimal serializer for dropdowns, etc. where we just need the learner's
+    name and ID.
+    """
+    id = serializers.UUIDField(source="user.id", read_only=True)
+    name = serializers.SerializerMethodField()
+
+    def get_name(self, obj):
+        return f"{obj.user.first_name} {obj.user.last_name}"
+
+    class Meta:
+        model = LearnerProfile
+        fields = ["id", "name"]
+
+
 # ─────────────────────────────────────────────────────────────
 # WRITE — Update Learner (PATCH)
 # ─────────────────────────────────────────────────────────────
 
 class UpdateLearnerSerializer(serializers.Serializer):
+    """
+    Admin edit dialog. ULN is intentionally NOT here — it is a permanent
+    UK identifier and must never be rewritten after issue. Any `uln` key
+    in the request body is silently dropped by DRF.
+    """
     firstName = serializers.CharField(source="first_name", required=False)
     lastName = serializers.CharField(source="last_name", required=False)
     email = serializers.EmailField(required=False)
-    uln = serializers.CharField(required=False, validators=[uln_validator])
     dateOfBirth = serializers.DateField(source="date_of_birth", required=False, allow_null=True)
     phone = serializers.CharField(required=False, allow_blank=True, max_length=20)
 
