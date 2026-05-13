@@ -1,9 +1,8 @@
 import uuid
-import secrets
 
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.core.validators import RegexValidator
-from django.db import IntegrityError, models
+from django.db import models
 from django.utils import timezone
 
 
@@ -79,20 +78,6 @@ class User(AbstractBaseUser, PermissionsMixin):
 uln_validator = RegexValidator(r"^\d{10}$", "ULN must be exactly 10 digits.")
 
 
-def generate_uln() -> str:
-    """UK ULN: 10 digits with Modulo-11 check digit."""
-    while True:
-        base = [secrets.randbelow(10) for _ in range(9)]
-        if base[0] == 0:
-            continue
-        weights = [10, 9, 8, 7, 6, 5, 4, 3, 2]
-        total = sum(d * w for d, w in zip(base, weights))
-        check = 10 - (total % 11)
-        if check in (10, 11):
-            continue
-        return "".join(map(str, base)) + str(check)
-
-
 def generate_learner_id() -> str:
     """LE-YY-XXXXXX, sequential per year."""
     year = timezone.now().strftime("%y")
@@ -120,7 +105,13 @@ class LearnerProfile(models.Model):
         limit_choices_to={"role": Role.LEARNER},
     )
     learner_id = models.CharField(max_length=20, unique=True, editable=False, db_index=True)
-    uln = models.CharField(max_length=10, unique=True, blank=True, validators=[uln_validator], db_index=True)
+    # ULN is issued externally by the UK LRS (ESFA). Optional — many learners
+    # arrive without one. `null=True` is essential: with `unique=True`, multiple
+    # rows would collide on empty strings; multiple NULLs are allowed.
+    uln = models.CharField(
+        max_length=10, unique=True, null=True, blank=True,
+        validators=[uln_validator], db_index=True,
+    )
 
     date_of_birth = models.DateField(null=True, blank=True)
     phone = models.CharField(max_length=20, blank=True)
@@ -138,17 +129,10 @@ class LearnerProfile(models.Model):
     def save(self, *args, **kwargs):
         if not self.learner_id:
             self.learner_id = generate_learner_id()
+        # ULN is left as-is. If blank, store NULL so the unique index permits
+        # multiple ULN-less learners.
         if not self.uln:
-            for _ in range(5):
-                try:
-                    self.uln = generate_uln()
-                    super().save(*args, **kwargs)
-                    return
-                except IntegrityError as exc:
-                    if "uln" not in str(exc).lower():
-                        raise
-                    self.uln = None
-            raise Exception("ULN generation failed")
+            self.uln = None
         super().save(*args, **kwargs)
 
     def __str__(self):
