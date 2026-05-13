@@ -19,6 +19,7 @@ from .stats import compute_stats
 
 REPORT_QUERY_PARAMS = [
     OpenApiParameter("qualification_id", OpenApiTypes.UUID, OpenApiParameter.QUERY),
+    OpenApiParameter("exam_title", OpenApiTypes.STR, OpenApiParameter.QUERY),
     OpenApiParameter("date_from", OpenApiTypes.DATE, OpenApiParameter.QUERY),
     OpenApiParameter("date_to", OpenApiTypes.DATE, OpenApiParameter.QUERY),
     OpenApiParameter("learner_id", OpenApiTypes.UUID, OpenApiParameter.QUERY),
