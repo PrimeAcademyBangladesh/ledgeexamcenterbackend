@@ -9,6 +9,7 @@ RegisterLearnerRequest).
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
+from django.utils import timezone
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
@@ -51,13 +52,23 @@ class LearnerSerializer(serializers.ModelSerializer):
     # Most-recent active enrollment — UI shows "Qualification" column
     qualificationId = serializers.SerializerMethodField()
     qualificationName = serializers.SerializerMethodField()
+    cohort = serializers.SerializerMethodField()
+    employer = serializers.SerializerMethodField()
+    knowledgeTestId = serializers.SerializerMethodField()
+    invigilatorId = serializers.SerializerMethodField()
+    testDate = serializers.SerializerMethodField()
+    testTime = serializers.SerializerMethodField()
+    allowImmediateStart = serializers.SerializerMethodField()
+    pin = serializers.SerializerMethodField()
 
     class Meta:
         model = LearnerProfile
         fields = [
             "id", "learnerId", "firstName", "lastName", "email", "uln",
             "dateOfBirth", "phone", "photo", "idVerified", "isActive",
-            "qualificationId", "qualificationName", "createdAt",
+            "qualificationId", "qualificationName", "cohort", "employer",
+            "knowledgeTestId", "invigilatorId", "testDate", "testTime",
+            "allowImmediateStart", "pin", "createdAt",
         ]
 
     @extend_schema_field(serializers.CharField(allow_null=True))
@@ -66,6 +77,15 @@ class LearnerSerializer(serializers.ModelSerializer):
 
     def _active_enrollment(self, obj):
         return obj.enrollments.filter(status=EnrollmentStatus.ACTIVE).select_related("qualification").first()
+
+    def _scheduled_session(self, obj):
+        return (
+            obj.user.exam_sessions_as_learner
+            .filter(status="scheduled")
+            .select_related("exam_config", "invigilator")
+            .order_by("scheduled_date", "scheduled_time", "created_at")
+            .first()
+        )
 
     @extend_schema_field(serializers.UUIDField(allow_null=True))
     def get_qualificationId(self, obj) -> str | None:
@@ -76,6 +96,46 @@ class LearnerSerializer(serializers.ModelSerializer):
     def get_qualificationName(self, obj) -> str:
         e = self._active_enrollment(obj)
         return e.qualification.title if e else ""
+
+    @extend_schema_field(serializers.CharField())
+    def get_cohort(self, obj) -> str:
+        e = self._active_enrollment(obj)
+        return e.cohort if e else ""
+
+    @extend_schema_field(serializers.CharField())
+    def get_employer(self, obj) -> str:
+        e = self._active_enrollment(obj)
+        return e.employer if e else ""
+
+    @extend_schema_field(serializers.UUIDField(allow_null=True))
+    def get_knowledgeTestId(self, obj) -> str | None:
+        session = self._scheduled_session(obj)
+        return str(session.exam_config_id) if session else None
+
+    @extend_schema_field(serializers.UUIDField(allow_null=True))
+    def get_invigilatorId(self, obj) -> str | None:
+        session = self._scheduled_session(obj)
+        return str(session.invigilator_id) if session else None
+
+    @extend_schema_field(serializers.DateField(allow_null=True))
+    def get_testDate(self, obj) -> str | None:
+        session = self._scheduled_session(obj)
+        return session.scheduled_date.isoformat() if session else None
+
+    @extend_schema_field(serializers.TimeField(allow_null=True))
+    def get_testTime(self, obj) -> str | None:
+        session = self._scheduled_session(obj)
+        return session.scheduled_time.isoformat() if session else None
+
+    @extend_schema_field(serializers.BooleanField(allow_null=True))
+    def get_allowImmediateStart(self, obj) -> bool | None:
+        session = self._scheduled_session(obj)
+        return session.allow_immediate_start if session else None
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_pin(self, obj) -> str | None:
+        session = self._scheduled_session(obj)
+        return session.pin if session else None
 
 
 # ─────────────────────────────────────────────────────────────
@@ -170,6 +230,13 @@ class LearnerDetailSerializer(LearnerSerializer):
 # WRITE — Register Learner (AdminLearners modal)
 # ─────────────────────────────────────────────────────────────
 
+class BlankableDateField(serializers.DateField):
+    def to_internal_value(self, value):
+        if value in ("", None):
+            return None
+        return super().to_internal_value(value)
+
+
 class RegisterLearnerSerializer(serializers.Serializer):
     """
     Mirrors `RegisterLearnerRequest` in src/services/api/types.ts.
@@ -199,7 +266,7 @@ class RegisterLearnerSerializer(serializers.Serializer):
     # ----- first exam session -----
     knowledgeTestId = serializers.UUIDField(source="exam_config_id")
     invigilatorId = serializers.UUIDField(source="invigilator_id")
-    testDate = serializers.DateField(source="scheduled_date")
+    testDate = BlankableDateField(source="scheduled_date", required=False, allow_null=True)
     testTime = serializers.TimeField(source="scheduled_time")
     allowImmediateStart = serializers.BooleanField(source="allow_immediate_start", default=False)
     pin = serializers.RegexField(r"^\d{6}$")
@@ -237,6 +304,15 @@ class RegisterLearnerSerializer(serializers.Serializer):
         if not User.objects.filter(pk=value, role=Role.INVIGILATOR, is_active=True).exists():
             raise serializers.ValidationError("Invigilator not found or inactive.")
         return value
+
+    def validate(self, attrs):
+        allow_immediate_start = attrs.get("allow_immediate_start", False)
+        scheduled_date = attrs.get("scheduled_date")
+        if not allow_immediate_start and scheduled_date is None:
+            raise serializers.ValidationError({"testDate": "This field is required."})
+        if allow_immediate_start and scheduled_date is None:
+            attrs["scheduled_date"] = timezone.localdate()
+        return attrs
 
     @transaction.atomic
     def create(self, validated):
@@ -333,14 +409,14 @@ class UpdateLearnerSerializer(serializers.Serializer):
         required=False, allow_blank=True, allow_null=True,
         validators=[drf_validate_uln],
     )
-    dateOfBirth = serializers.DateField(source="date_of_birth", required=False, allow_null=True)
+    dateOfBirth = BlankableDateField(source="date_of_birth", required=False, allow_null=True)
     phone = serializers.CharField(required=False, allow_blank=True, max_length=20)
     qualificationId = serializers.UUIDField(source="qualification_id", required=False)
     cohort = serializers.CharField(required=False, allow_blank=True, max_length=40)
     employer = serializers.CharField(required=False, allow_blank=True, max_length=200)
     knowledgeTestId = serializers.UUIDField(source="exam_config_id", required=False)
     invigilatorId = serializers.UUIDField(source="invigilator_id", required=False)
-    testDate = serializers.DateField(source="scheduled_date", required=False)
+    testDate = BlankableDateField(source="scheduled_date", required=False, allow_null=True)
     testTime = serializers.TimeField(source="scheduled_time", required=False)
     allowImmediateStart = serializers.BooleanField(source="allow_immediate_start", required=False)
     pin = serializers.RegexField(r"^\d{6}$", required=False)
@@ -380,7 +456,22 @@ class UpdateLearnerSerializer(serializers.Serializer):
             raise serializers.ValidationError("Invigilator not found or inactive.")
         return value
 
-    def _get_active_enrollment(self, profile):
+    def validate(self, attrs):
+        allow_immediate_start = attrs.get("allow_immediate_start")
+        scheduled_date = attrs.get("scheduled_date", serializers.empty)
+
+        if allow_immediate_start is False and scheduled_date is None:
+            raise serializers.ValidationError({"testDate": "This field is required."})
+
+        if allow_immediate_start is True and scheduled_date is None:
+            attrs.pop("scheduled_date", None)
+
+        return attrs
+
+    def _latest_enrollment(self, profile):
+        return profile.enrollments.order_by("-enrolled_at", "-created_at").first()
+
+    def _get_editable_enrollment(self, profile):
         return (
             profile.enrollments
             .filter(status=EnrollmentStatus.ACTIVE)
@@ -417,10 +508,20 @@ class UpdateLearnerSerializer(serializers.Serializer):
             if k in validated:
                 enrollment_fields[k] = validated.pop(k)
         if enrollment_fields:
-            enrollment = self._get_active_enrollment(profile)
+            enrollment = self._get_editable_enrollment(profile)
             if enrollment is None:
+                latest_enrollment = self._latest_enrollment(profile)
+                if latest_enrollment is not None:
+                    raise serializers.ValidationError(
+                        {
+                            "qualificationId": (
+                                f"This learner's enrollment is {latest_enrollment.status} "
+                                "and cannot be edited here. Create or reactivate an enrollment instead."
+                            )
+                        }
+                    )
                 raise serializers.ValidationError(
-                    {"qualificationId": "Active enrollment not found for this learner."}
+                    {"qualificationId": "Enrollment not found for this learner."}
                 )
             changed_enrollment_fields = []
             for k, v in enrollment_fields.items():
@@ -444,6 +545,21 @@ class UpdateLearnerSerializer(serializers.Serializer):
         if session_fields:
             session = self._get_editable_session(profile)
             if session is None:
+                latest_session = (
+                    profile.user.exam_sessions_as_learner
+                    .select_related("exam_config", "invigilator")
+                    .order_by("-created_at")
+                    .first()
+                )
+                if latest_session is not None:
+                    raise serializers.ValidationError(
+                        {
+                            "knowledgeTestId": (
+                                f"This learner's exam session is {latest_session.status} "
+                                "and cannot be edited here. Create a new scheduled session instead."
+                            )
+                        }
+                    )
                 raise serializers.ValidationError(
                     {"knowledgeTestId": "Scheduled exam session not found for this learner."}
                 )

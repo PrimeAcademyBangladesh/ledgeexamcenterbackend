@@ -82,7 +82,16 @@ class LearnerViewSet(viewsets.GenericViewSet):
     URL key is the learner's `user_id` (UUID) — matches what the React
     `Learner.id` field contains.
     """
-    queryset = LearnerProfile.objects.select_related("user").prefetch_related("enrollments__qualification")
+    queryset = (
+        LearnerProfile.objects
+        .select_related("user")
+        .prefetch_related(
+            "enrollments__qualification",
+            "user__exam_sessions_as_learner__exam_config",
+            "user__exam_sessions_as_learner__invigilator",
+        )
+        .order_by("-user__date_joined")
+    )
     permission_classes = [IsAdminOrReadOnlyStaff]
     filter_backends = [DjangoFilterBackend]
     filterset_class = LearnerFilter
@@ -117,7 +126,15 @@ class LearnerViewSet(viewsets.GenericViewSet):
         page = self.paginate_queryset(qs)
         data = LearnerSerializer(page or qs, many=True).data
         if page is not None:
-            return self.get_paginated_response(data)
+            return APIResponse.ok(
+                data={
+                    "count": self.paginator.page.paginator.count,
+                    "next": self.paginator.get_next_link(),
+                    "previous": self.paginator.get_previous_link(),
+                    "results": data,
+                },
+                message="Learners retrieved",
+            )
         return APIResponse.ok(data=data, message="Learners retrieved")
 
     def retrieve(self, request, user_id=None):
@@ -290,7 +307,7 @@ class MyEnrollmentsView(generics.ListAPIView):
 # ─────────────────────────────────────────────────────────────
 
 @extend_schema_view(
-    list=extend_schema(tags=["Reasonable Adjustments"], responses={200: envelope_array(ReasonableAdjustmentSerializer, many=True), **DEFAULT_ERROR_RESPONSES}),
+    list=extend_schema(tags=["Reasonable Adjustments"], responses={200: envelope_list(ReasonableAdjustmentSerializer), **DEFAULT_ERROR_RESPONSES}),
     retrieve=extend_schema(tags=["Reasonable Adjustments"], responses={200: envelope_detail(ReasonableAdjustmentSerializer), **DEFAULT_ERROR_RESPONSES}),
     create=extend_schema(tags=["Reasonable Adjustments"], request=CreateReasonableAdjustmentSerializer, responses={201: envelope_detail(ReasonableAdjustmentSerializer), **DEFAULT_ERROR_RESPONSES}),
     partial_update=extend_schema(tags=["Reasonable Adjustments"], responses={200: envelope_detail(ReasonableAdjustmentSerializer), **DEFAULT_ERROR_RESPONSES}),
@@ -311,7 +328,14 @@ class ReasonableAdjustmentViewSet(viewsets.ModelViewSet):
         learner_id = request.query_params.get("learnerId")
         if learner_id:
             qs = qs.filter(learner__user_id=learner_id)
-        return APIResponse.ok(data=ReasonableAdjustmentSerializer(qs, many=True).data)
+
+        page = self.paginate_queryset(qs)
+        if page is not None:
+            serializer = ReasonableAdjustmentSerializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = ReasonableAdjustmentSerializer(qs, many=True)
+        return APIResponse.ok(data=serializer.data)
 
     def create(self, request, *args, **kwargs):
         serializer = CreateReasonableAdjustmentSerializer(data=request.data, context={"request": request})

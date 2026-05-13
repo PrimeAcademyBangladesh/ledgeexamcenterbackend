@@ -1,3 +1,5 @@
-from django.db import models
+"""
+Reports are read models over existing exam result data.
 
-# Create your models here.
+This app intentionally has no database models of its own.
+"""
