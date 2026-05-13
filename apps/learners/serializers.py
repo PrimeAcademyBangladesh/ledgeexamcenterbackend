@@ -15,7 +15,7 @@ from rest_framework import serializers
 from apps.users.models import User, LearnerProfile, Role
 from apps.qualifications.models import Qualification
 from apps.exams.models import ExamConfig
-from apps.exams.services import create_scheduled_session
+from apps.exams.services import _compute_pin_window, create_scheduled_session
 
 from .models import (
     Enrollment,
@@ -335,6 +335,15 @@ class UpdateLearnerSerializer(serializers.Serializer):
     )
     dateOfBirth = serializers.DateField(source="date_of_birth", required=False, allow_null=True)
     phone = serializers.CharField(required=False, allow_blank=True, max_length=20)
+    qualificationId = serializers.UUIDField(source="qualification_id", required=False)
+    cohort = serializers.CharField(required=False, allow_blank=True, max_length=40)
+    employer = serializers.CharField(required=False, allow_blank=True, max_length=200)
+    knowledgeTestId = serializers.UUIDField(source="exam_config_id", required=False)
+    invigilatorId = serializers.UUIDField(source="invigilator_id", required=False)
+    testDate = serializers.DateField(source="scheduled_date", required=False)
+    testTime = serializers.TimeField(source="scheduled_time", required=False)
+    allowImmediateStart = serializers.BooleanField(source="allow_immediate_start", required=False)
+    pin = serializers.RegexField(r"^\d{6}$", required=False)
 
     def validate_email(self, value):
         value = value.lower()
@@ -356,6 +365,38 @@ class UpdateLearnerSerializer(serializers.Serializer):
             raise serializers.ValidationError("ULN already in use.")
         return value
 
+    def validate_qualificationId(self, value):
+        if not Qualification.objects.filter(pk=value, is_active=True).exists():
+            raise serializers.ValidationError("Qualification not found or inactive.")
+        return value
+
+    def validate_knowledgeTestId(self, value):
+        if not ExamConfig.objects.filter(pk=value, status="published").exists():
+            raise serializers.ValidationError("Knowledge test not found or unpublished.")
+        return value
+
+    def validate_invigilatorId(self, value):
+        if not User.objects.filter(pk=value, role=Role.INVIGILATOR, is_active=True).exists():
+            raise serializers.ValidationError("Invigilator not found or inactive.")
+        return value
+
+    def _get_active_enrollment(self, profile):
+        return (
+            profile.enrollments
+            .filter(status=EnrollmentStatus.ACTIVE)
+            .order_by("-enrolled_at", "-created_at")
+            .first()
+        )
+
+    def _get_editable_session(self, profile):
+        return (
+            profile.user.exam_sessions_as_learner
+            .filter(status="scheduled")
+            .select_related("exam_config", "invigilator")
+            .order_by("scheduled_date", "scheduled_time", "created_at")
+            .first()
+        )
+
     @transaction.atomic
     def update(self, profile, validated):
         user_fields = {}
@@ -363,13 +404,83 @@ class UpdateLearnerSerializer(serializers.Serializer):
             if k in validated:
                 user_fields[k] = validated.pop(k)
         if user_fields:
+            changed_user_fields = []
             for k, v in user_fields.items():
-                setattr(profile.user, k, v)
-            profile.user.save()
+                if getattr(profile.user, k) != v:
+                    setattr(profile.user, k, v)
+                    changed_user_fields.append(k)
+            if changed_user_fields:
+                profile.user.save(update_fields=changed_user_fields)
 
+        enrollment_fields = {}
+        for k in ("qualification_id", "cohort", "employer"):
+            if k in validated:
+                enrollment_fields[k] = validated.pop(k)
+        if enrollment_fields:
+            enrollment = self._get_active_enrollment(profile)
+            if enrollment is None:
+                raise serializers.ValidationError(
+                    {"qualificationId": "Active enrollment not found for this learner."}
+                )
+            changed_enrollment_fields = []
+            for k, v in enrollment_fields.items():
+                if getattr(enrollment, k) != v:
+                    setattr(enrollment, k, v)
+                    changed_enrollment_fields.append(k)
+            if changed_enrollment_fields:
+                enrollment.save(update_fields=changed_enrollment_fields)
+
+        session_fields = {}
+        for k in (
+            "exam_config_id",
+            "invigilator_id",
+            "scheduled_date",
+            "scheduled_time",
+            "allow_immediate_start",
+            "pin",
+        ):
+            if k in validated:
+                session_fields[k] = validated.pop(k)
+        if session_fields:
+            session = self._get_editable_session(profile)
+            if session is None:
+                raise serializers.ValidationError(
+                    {"knowledgeTestId": "Scheduled exam session not found for this learner."}
+                )
+
+            changed_session_fields = []
+            for k, v in session_fields.items():
+                if getattr(session, k) != v:
+                    setattr(session, k, v)
+                    changed_session_fields.append(k)
+
+            if {
+                "exam_config_id",
+                "scheduled_date",
+                "scheduled_time",
+                "allow_immediate_start",
+            } & set(changed_session_fields):
+                pin_start, pin_end = _compute_pin_window(
+                    session.scheduled_date,
+                    session.scheduled_time,
+                    session.exam_config,
+                    extra_minutes=session.extra_time_minutes or 0,
+                    allow_immediate_start=session.allow_immediate_start,
+                )
+                session.pin_window_start = pin_start
+                session.pin_window_end = pin_end
+                changed_session_fields.extend(["pin_window_start", "pin_window_end"])
+
+            if changed_session_fields:
+                session.save(update_fields=list(dict.fromkeys(changed_session_fields)))
+
+        changed_profile_fields = []
         for k, v in validated.items():
-            setattr(profile, k, v)
-        profile.save()
+            if getattr(profile, k) != v:
+                setattr(profile, k, v)
+                changed_profile_fields.append(k)
+        if changed_profile_fields:
+            profile.save(update_fields=changed_profile_fields)
         return profile
 
 
