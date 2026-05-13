@@ -207,11 +207,22 @@ _GenerateUlnEnvelope = inline_serializer(
 )
 
 
+@extend_schema(
+    tags=["Learners"],
+    summary="Learner dropdown",
+    responses={200: envelope_array(LearnerDropDownSerializer, many=True), **DEFAULT_ERROR_RESPONSES},
+)
 class LearnerDropDownViewSet(ListAPIView):
     """
-    GET /api/learners/dropdown/ — returns all learners in a {id: name} format for dropdowns.
+    GET /learner/learners/dropdown/ — minimal list for admin pickers.
+    Only active learners; sorted alphabetically by name.
     """
-    permission_classes = [IsAuthenticated]
+    queryset = (
+        LearnerProfile.objects
+        .filter(user__is_active=True, user__role=Role.LEARNER)
+        .select_related("user")
+        .order_by("user__first_name", "user__last_name")
+    )
     serializer_class = LearnerDropDownSerializer
     permission_classes = [IsAuthenticated]
     pagination_class = None

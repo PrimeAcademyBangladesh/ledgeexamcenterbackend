@@ -170,32 +170,6 @@ class LearnerDetailSerializer(LearnerSerializer):
 
 
 # ─────────────────────────────────────────────────────────────
-# READ — Learner dropdown (admin pickers)
-# ─────────────────────────────────────────────────────────────
-
-class LearnerDropDownSerializer(serializers.ModelSerializer):
-    """
-    Minimal shape for admin <select> pickers — id (User UUID),
-    display name, learnerId (LE-YY-XXXXXX), and ULN.
-    """
-    name = serializers.SerializerMethodField()
-    firstName = serializers.CharField(source="user.first_name")
-    lastName = serializers.CharField(source="user.last_name")
-    learnerId = serializers.CharField(source="learner_id")
-
-    class Meta:
-        model = LearnerProfile
-        fields = ["id", "name", "firstName", "lastName", "learnerId", "uln"]
-        read_only_fields = fields
-
-    id = serializers.UUIDField(source="user_id", read_only=True)
-
-    @extend_schema_field(serializers.CharField())
-    def get_name(self, obj) -> str:
-        return f"{obj.user.first_name} {obj.user.last_name}".strip()
-
-
-# ─────────────────────────────────────────────────────────────
 # WRITE — Register Learner (AdminLearners modal)
 # ─────────────────────────────────────────────────────────────
 
@@ -326,12 +300,14 @@ class LearnerDropDownSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(source="user.id", read_only=True)
     name = serializers.SerializerMethodField()
 
-    def get_name(self, obj):
-        return f"{obj.user.first_name} {obj.user.last_name}"
-
     class Meta:
         model = LearnerProfile
         fields = ["id", "name"]
+
+    def get_name(self, obj):
+        return f"{obj.user.first_name} {obj.user.last_name}"
+
+    
 
 
 # ─────────────────────────────────────────────────────────────
