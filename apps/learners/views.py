@@ -40,7 +40,12 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.generics import ListAPIView
-from drf_spectacular.utils import extend_schema, extend_schema_view, inline_serializer, OpenApiParameter
+from drf_spectacular.utils import (
+    extend_schema, extend_schema_view, inline_serializer,
+    OpenApiParameter,
+)
+
+from core.pagination import StandardPagination
 
 from core.responses import APIResponse
 from core.email import send_email
@@ -306,8 +311,38 @@ class MyEnrollmentsView(generics.ListAPIView):
 # Reasonable Adjustments
 # ─────────────────────────────────────────────────────────────
 
+# Reusable summary shape (matches the 3 cards on AdminAdjustments.tsx).
+_RASummary = inline_serializer(
+    name="ReasonableAdjustmentListSummary",
+    fields={
+        "totalRequests": drf_serializers.IntegerField(),
+        "accepted":      drf_serializers.IntegerField(),
+        "denied":        drf_serializers.IntegerField(),
+    },
+)
+
+
+class _RAPaginator(StandardPagination):
+    """
+    Same runtime behavior as StandardPagination, but advertises the `summary`
+    block to drf-spectacular so the generated schema matches the real response.
+    """
+    def get_paginated_response_schema(self, schema):
+        # Start from DRF's default paginated shape, then inject `summary`.
+        base = super().get_paginated_response_schema(schema)
+        base["properties"]["summary"] = {
+            "$ref": "#/components/schemas/ReasonableAdjustmentListSummary"
+        }
+        base.setdefault("required", []).append("summary")
+        return base
+
+
 @extend_schema_view(
-    list=extend_schema(tags=["Reasonable Adjustments"], responses={200: envelope_list(ReasonableAdjustmentSerializer), **DEFAULT_ERROR_RESPONSES}),
+    list=extend_schema(
+        tags=["Reasonable Adjustments"],
+        parameters=[OpenApiParameter("learnerId", type=str, required=False, description="Filter by learner UUID")],
+        responses={200: ReasonableAdjustmentSerializer(many=True), **DEFAULT_ERROR_RESPONSES},
+    ),
     retrieve=extend_schema(tags=["Reasonable Adjustments"], responses={200: envelope_detail(ReasonableAdjustmentSerializer), **DEFAULT_ERROR_RESPONSES}),
     create=extend_schema(tags=["Reasonable Adjustments"], request=CreateReasonableAdjustmentSerializer, responses={201: envelope_detail(ReasonableAdjustmentSerializer), **DEFAULT_ERROR_RESPONSES}),
     partial_update=extend_schema(tags=["Reasonable Adjustments"], responses={200: envelope_detail(ReasonableAdjustmentSerializer), **DEFAULT_ERROR_RESPONSES}),
@@ -316,12 +351,32 @@ class MyEnrollmentsView(generics.ListAPIView):
 class ReasonableAdjustmentViewSet(viewsets.ModelViewSet):
     queryset = ReasonableAdjustment.objects.select_related("learner__user")
     permission_classes = [IsAdmin]
+    pagination_class = _RAPaginator
     http_method_names = ["get", "post", "patch", "delete"]
+
+    # Ensure spectacular emits the summary component even when no other path
+    # references it as a $ref target (keeps the OpenAPI schema standalone-valid).
+    _force_register_ra_summary = _RASummary
 
     def get_serializer_class(self):
         if self.action == "create":
             return CreateReasonableAdjustmentSerializer
         return ReasonableAdjustmentSerializer
+
+    def _build_summary(self, qs):
+        """Aggregate counters surfaced alongside the paginated results.
+        Computed in a single query via conditional Count."""
+        from django.db.models import Count, Q
+        agg = qs.aggregate(
+            total=Count("id"),
+            accepted=Count("id", filter=Q(accepted=True)),
+            denied=Count("id", filter=Q(denied=True)),
+        )
+        return {
+            "totalRequests": agg["total"] or 0,
+            "accepted":      agg["accepted"] or 0,
+            "denied":        agg["denied"] or 0,
+        }
 
     def list(self, request, *args, **kwargs):
         qs = self.get_queryset()
@@ -329,13 +384,23 @@ class ReasonableAdjustmentViewSet(viewsets.ModelViewSet):
         if learner_id:
             qs = qs.filter(learner__user_id=learner_id)
 
+        summary = self._build_summary(qs)
         page = self.paginate_queryset(qs)
         if page is not None:
             serializer = ReasonableAdjustmentSerializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
+            response = self.get_paginated_response(serializer.data)
+            # Inject the summary alongside count/next/previous/results.
+            response.data = {
+                "count":    response.data.get("count"),
+                "next":     response.data.get("next"),
+                "previous": response.data.get("previous"),
+                "summary":  summary,
+                "results":  response.data.get("results", []),
+            }
+            return response
 
         serializer = ReasonableAdjustmentSerializer(qs, many=True)
-        return APIResponse.ok(data=serializer.data)
+        return APIResponse.ok(data={"summary": summary, "results": serializer.data})
 
     def create(self, request, *args, **kwargs):
         serializer = CreateReasonableAdjustmentSerializer(data=request.data, context={"request": request})

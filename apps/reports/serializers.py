@@ -55,3 +55,27 @@ class ReportRowSerializer(serializers.ModelSerializer):
     def get_uln(self, obj) -> str:
         profile = getattr(obj.learner, "learner_profile", None)
         return profile.uln if profile and profile.uln else ""
+
+
+class ReportDetailSerializer(ReportRowSerializer):
+    """
+    GET /reports/{id}/ — powers the Exam Summary modal.
+    Same fields as the list row + a pre-formatted time string so the
+    frontend doesn't need to do its own seconds-to-mm:ss math.
+    """
+    timeTakenDisplay = serializers.SerializerMethodField()
+    resultLabel = serializers.SerializerMethodField()
+
+    class Meta(ReportRowSerializer.Meta):
+        fields = ReportRowSerializer.Meta.fields + (
+            "timeTakenDisplay",
+            "resultLabel",
+        )
+
+    def get_timeTakenDisplay(self, obj) -> str:
+        secs = obj.time_taken_seconds or 0
+        m, s = divmod(secs, 60)
+        return f"{m}m {s}s"
+
+    def get_resultLabel(self, obj) -> str:
+        return "PASSED" if obj.passed else "DID NOT PASS"

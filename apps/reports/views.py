@@ -2,6 +2,7 @@ import csv
 import io
 
 from django.http import HttpResponse
+from django.shortcuts import get_object_or_404
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema, extend_schema_view, inline_serializer
 from rest_framework import mixins, serializers, viewsets
@@ -10,10 +11,11 @@ from rest_framework.views import APIView
 from apps.exams.models import ExamResult
 from core.permission import IsAdmin
 from core.responses import APIResponse
-from core.schemas import DEFAULT_ERROR_RESPONSES
+from core.schemas import DEFAULT_ERROR_RESPONSES, envelope_detail
 
 from .filters import ReportFilter
-from .serializers import ReportRowSerializer
+from .marksheet import render_marksheet
+from .serializers import ReportDetailSerializer, ReportRowSerializer
 from .stats import compute_stats
 
 
@@ -66,10 +68,14 @@ REPORT_LIST_SCHEMA = inline_serializer(
         parameters=REPORT_QUERY_PARAMS,
         responses={200: REPORT_LIST_SCHEMA, **DEFAULT_ERROR_RESPONSES},
     ),
+    retrieve=extend_schema(
+        tags=["Reports"],
+        summary="Retrieve a single result (powers Exam Summary modal)",
+        responses={200: envelope_detail(ReportDetailSerializer), **DEFAULT_ERROR_RESPONSES},
+    ),
 )
-class ReportViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
+class ReportViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     permission_classes = [IsAdmin]
-    serializer_class = ReportRowSerializer
     filter_backends = [DjangoFilterBackend]
     filterset_class = ReportFilter
     queryset = ExamResult.objects.select_related(
@@ -79,6 +85,18 @@ class ReportViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         "qualification",
         "session",
     ).order_by("-submitted_at")
+
+    def get_serializer_class(self):
+        if self.action == "retrieve":
+            return ReportDetailSerializer
+        return ReportRowSerializer
+
+    def retrieve(self, request, *args, **kwargs):
+        result = self.get_object()
+        return APIResponse.ok(
+            data=ReportDetailSerializer(result).data,
+            message="Result retrieved successfully.",
+        )
 
     def list(self, request, *args, **kwargs):
         qs = self.filter_queryset(self.get_queryset())
@@ -101,6 +119,46 @@ class ReportViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
             data={"rows": rows, "stats": compute_stats(qs)},
             message="Reports retrieved successfully.",
         )
+
+class MarksheetView(APIView):
+    """
+    GET /reports/{id}/marksheet/  →  application/pdf
+
+    Triggered by the "Marksheet" action on each result row. The PDF mirrors
+    the brand: teal header, gold accent rule, score + grade tile, signed-off
+    footer. Logo is loaded from static/marksheet/logo.png (drop your logo
+    there — the renderer falls back to text if it's missing).
+    """
+    permission_classes = [IsAdmin]
+
+    @extend_schema(
+        tags=["Reports"],
+        summary="Download a learner's exam result as a PDF marksheet",
+        responses={
+            200: {
+                "content": {"application/pdf": {"schema": {"type": "string", "format": "binary"}}},
+                "description": "Marksheet PDF",
+            },
+            **DEFAULT_ERROR_RESPONSES,
+        },
+    )
+    def get(self, request, pk):
+        result = get_object_or_404(
+            ExamResult.objects.select_related(
+                "learner", "learner__learner_profile",
+                "exam_config", "qualification", "session",
+            ),
+            pk=pk,
+        )
+        pdf_bytes = render_marksheet(result)
+        learner = result.learner
+        slug = f"{learner.first_name}-{learner.last_name}".lower().replace(" ", "-")
+        filename = f"marksheet-{slug}-{result.exam_date.isoformat()}.pdf"
+
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
+
 
 class ReportExportView(APIView):
     permission_classes = [IsAdmin]
