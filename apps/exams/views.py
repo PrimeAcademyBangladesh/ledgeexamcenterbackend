@@ -69,7 +69,7 @@ from .serializers import (
     CreateResitSessionSerializer, DenyRetakeSerializer,
 )
 from .services import (
-    _generate_pin,
+    _generate_pin, _compute_pin_window,
     create_scheduled_session, select_questions_for_learner,
     score_submission, is_resit_eligible,
 )
@@ -420,6 +420,39 @@ class ExamSessionViewSet(viewsets.ModelViewSet):
         return APIResponse.ok(
             data=ExamSessionSerializer(session).data,
             message="Session cancelled.",
+        )
+
+    @action(detail=True, methods=["post"], url_path="allow-immediate-start",
+            permission_classes=[IsAdmin])
+    def allow_immediate_start(self, request, pk=None):
+        """Open the PIN window for an already-scheduled session immediately.
+
+        Used when an admin needs to let a learner sit now (e.g. invigilator
+        ready, learner present) without going through the schedule modal again.
+        Recomputes pin_window_start to now and pin_window_end to now+duration.
+        """
+        with transaction.atomic():
+            session = self._get_locked_session(pk)
+            if session.status != "scheduled":
+                return APIResponse.fail(
+                    message=f"Session is {session.status}; cannot enable sit-now.",
+                    errors={"status": [f"Session is {session.status}"]},
+                    status=400,
+                )
+            pin_start, pin_end = _compute_pin_window(
+                session.scheduled_date, session.scheduled_time, session.exam_config,
+                extra_minutes=session.extra_time_minutes or 0,
+                allow_immediate_start=True,
+            )
+            session.allow_immediate_start = True
+            session.pin_window_start = pin_start
+            session.pin_window_end = pin_end
+            session.save(update_fields=[
+                "allow_immediate_start", "pin_window_start", "pin_window_end",
+            ])
+        return APIResponse.ok(
+            data=ExamSessionSerializer(session).data,
+            message="Session is now sit-now: PIN is valid immediately.",
         )
 
     @action(detail=True, methods=["post"], url_path="unlock",
