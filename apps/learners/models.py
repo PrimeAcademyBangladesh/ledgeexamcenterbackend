@@ -21,6 +21,10 @@ def validate_reasonable_adjustment_state(*, accepted, denied, denial_reason) -> 
     errors = {}
     if accepted and denied:
         errors["accepted"] = "Cannot be both accepted and denied."
+    if not accepted and not denied:
+        # A reasonable adjustment must be actioned at the moment it's recorded;
+        # there is no "pending" state in the admin UI.
+        errors["accepted"] = "Choose either Accepted or Denied."
     if denied and not (denial_reason or "").strip():
         errors["denial_reason"] = "Required when denying."
     if errors:
@@ -129,6 +133,12 @@ class ReasonableAdjustment(models.Model):
             models.CheckConstraint(
                 condition=models.Q(accepted=False) | models.Q(denied=False),
                 name="reasonable_adjustment_not_accepted_and_denied",
+            ),
+            # Mirrors the API-level validator: every adjustment must be
+            # actioned (Accepted or Denied) — no "pending" state.
+            models.CheckConstraint(
+                condition=models.Q(accepted=True) | models.Q(denied=True),
+                name="reasonable_adjustment_must_be_accepted_or_denied",
             ),
             models.CheckConstraint(
                 condition=models.Q(denied=False) | ~models.Q(denial_reason=""),

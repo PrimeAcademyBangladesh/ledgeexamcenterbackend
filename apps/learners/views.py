@@ -380,10 +380,29 @@ class ReasonableAdjustmentViewSet(viewsets.ModelViewSet):
         }
 
     def list(self, request, *args, **kwargs):
+        from django.db.models import Q
         qs = self.get_queryset()
-        learner_id = request.query_params.get("learnerId")
+        params = request.query_params
+
+        learner_id = params.get("learnerId")
         if learner_id:
             qs = qs.filter(learner__user_id=learner_id)
+
+        search = (params.get("search") or "").strip()
+        if search:
+            qs = qs.filter(
+                Q(notes__icontains=search)
+                | Q(learner__user__first_name__icontains=search)
+                | Q(learner__user__last_name__icontains=search)
+                | Q(learner__user__email__icontains=search)
+                | Q(denial_reason__icontains=search)
+            )
+
+        status_filter = (params.get("status") or "").strip().lower()
+        if status_filter == "accepted":
+            qs = qs.filter(accepted=True)
+        elif status_filter == "denied":
+            qs = qs.filter(denied=True)
 
         summary = self._build_summary(qs)
         page = self.paginate_queryset(qs)
