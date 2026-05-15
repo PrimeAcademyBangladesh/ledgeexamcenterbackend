@@ -61,6 +61,14 @@ class LearnerSerializer(serializers.ModelSerializer):
     allowImmediateStart = serializers.SerializerMethodField()
     pin = serializers.SerializerMethodField()
 
+    # Multi-exam summary fields — drive the admin learner table
+    nextExamTitle = serializers.SerializerMethodField()
+    nextExamInvigilatorName = serializers.SerializerMethodField()
+    upcomingExamCount = serializers.SerializerMethodField()
+    pastExamCount = serializers.SerializerMethodField()
+    failedExamCount = serializers.SerializerMethodField()
+    pinWindowActive = serializers.SerializerMethodField()
+
     class Meta:
         model = LearnerProfile
         fields = [
@@ -68,7 +76,11 @@ class LearnerSerializer(serializers.ModelSerializer):
             "dateOfBirth", "phone", "photo", "idVerified", "isActive",
             "qualificationId", "qualificationName", "cohort", "employer",
             "knowledgeTestId", "invigilatorId", "testDate", "testTime",
-            "allowImmediateStart", "pin", "createdAt",
+            "allowImmediateStart", "pin",
+            "nextExamTitle", "nextExamInvigilatorName",
+            "upcomingExamCount", "pastExamCount", "failedExamCount",
+            "pinWindowActive",
+            "createdAt",
         ]
 
     @extend_schema_field(serializers.CharField(allow_null=True))
@@ -76,16 +88,50 @@ class LearnerSerializer(serializers.ModelSerializer):
         return obj.photo.url if obj.photo else None
 
     def _active_enrollment(self, obj):
-        return obj.enrollments.filter(status=EnrollmentStatus.ACTIVE).select_related("qualification").first()
-
-    def _scheduled_session(self, obj):
-        return (
-            obj.user.exam_sessions_as_learner
-            .filter(status="scheduled")
-            .select_related("exam_config", "invigilator")
-            .order_by("scheduled_date", "scheduled_time", "created_at")
+        # Memoized per LearnerProfile instance — avoids N+1 across the many
+        # SerializerMethodFields below.
+        cached = getattr(obj, "_cached_active_enrollment", None)
+        if cached is not None or getattr(obj, "_cached_active_enrollment_set", False):
+            return cached
+        enrollment = (
+            obj.enrollments
+            .filter(status=EnrollmentStatus.ACTIVE)
+            .select_related("qualification")
             .first()
         )
+        obj._cached_active_enrollment = enrollment
+        obj._cached_active_enrollment_set = True
+        return enrollment
+
+    def _all_sessions(self, obj):
+        # Use the prefetched relation so this is free on list endpoints.
+        cached = getattr(obj, "_cached_all_sessions", None)
+        if cached is not None:
+            return cached
+        sessions = list(obj.user.exam_sessions_as_learner.all())
+        obj._cached_all_sessions = sessions
+        return sessions
+
+    def _next_session(self, obj):
+        # The soonest upcoming scheduled session. Filters out stale past
+        # sessions that were never moved off "scheduled" (e.g. no-shows).
+        cached = getattr(obj, "_cached_next_session", None)
+        if cached is not None or getattr(obj, "_cached_next_session_set", False):
+            return cached
+        today = timezone.localdate()
+        upcoming = [
+            s for s in self._all_sessions(obj)
+            if s.status == "scheduled" and s.scheduled_date and s.scheduled_date >= today
+        ]
+        upcoming.sort(key=lambda s: (s.scheduled_date, s.scheduled_time, s.created_at))
+        session = upcoming[0] if upcoming else None
+        obj._cached_next_session = session
+        obj._cached_next_session_set = True
+        return session
+
+    # Backwards-compat alias — older code still calls _scheduled_session.
+    def _scheduled_session(self, obj):
+        return self._next_session(obj)
 
     @extend_schema_field(serializers.UUIDField(allow_null=True))
     def get_qualificationId(self, obj) -> str | None:
@@ -136,6 +182,56 @@ class LearnerSerializer(serializers.ModelSerializer):
     def get_pin(self, obj) -> str | None:
         session = self._scheduled_session(obj)
         return session.pin if session else None
+
+    # ----- multi-exam summary getters -----
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_nextExamTitle(self, obj) -> str | None:
+        session = self._next_session(obj)
+        return session.exam_config.title if session else None
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_nextExamInvigilatorName(self, obj) -> str | None:
+        session = self._next_session(obj)
+        return session.invigilator.full_name if session else None
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_upcomingExamCount(self, obj) -> int:
+        today = timezone.localdate()
+        return sum(
+            1 for s in self._all_sessions(obj)
+            if s.status == "scheduled" and s.scheduled_date and s.scheduled_date >= today
+        )
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_pastExamCount(self, obj) -> int:
+        return sum(
+            1 for s in self._all_sessions(obj)
+            if s.status in ("completed", "cancelled")
+        )
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_failedExamCount(self, obj) -> int:
+        # Reads the prefetched OneToOne `result` on each session. Defensive
+        # against missing prefetch / missing result row.
+        count = 0
+        for s in self._all_sessions(obj):
+            if s.status != "completed":
+                continue
+            try:
+                if s.result and s.result.passed is False:
+                    count += 1
+            except Exception:
+                continue
+        return count
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_pinWindowActive(self, obj) -> bool:
+        session = self._next_session(obj)
+        if not session or not session.pin_window_start or not session.pin_window_end:
+            return False
+        now = timezone.now()
+        return session.pin_window_start <= now <= session.pin_window_end
 
 
 # ─────────────────────────────────────────────────────────────

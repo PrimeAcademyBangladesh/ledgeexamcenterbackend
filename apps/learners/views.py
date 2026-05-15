@@ -94,6 +94,7 @@ class LearnerViewSet(viewsets.GenericViewSet):
             "enrollments__qualification",
             "user__exam_sessions_as_learner__exam_config",
             "user__exam_sessions_as_learner__invigilator",
+            "user__exam_sessions_as_learner__result",
         )
         .order_by("-user__date_joined")
     )
