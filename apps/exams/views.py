@@ -186,15 +186,13 @@ class ExamConfigViewSet(viewsets.ModelViewSet):
             qs = qs.filter(strict_mode=strict.lower() == "true")
         return qs
 
-    @action(detail=False, methods=["get"], url_path="summary",
-            permission_classes=[IsAdminOrReadOnlyForStaff])
-    def summary(self, request):
-        """Aggregate counts for the admin Exams summary cards.
+    # ----- list with summary block (mirrors InvigilatorViewSet) -----
+    def _build_summary(self, qs):
+        """Aggregate counters surfaced alongside the paginated results.
 
         Honors the same filters as list, so the summary reflects the current
         filter context (e.g. counts for a specific qualification).
         """
-        qs = self.get_queryset()
         agg = qs.aggregate(
             total=Count("id"),
             live=Count("id", filter=Q(exam_type="live")),
@@ -203,15 +201,42 @@ class ExamConfigViewSet(viewsets.ModelViewSet):
             draft=Count("id", filter=Q(status="draft")),
             strict=Count("id", filter=Q(strict_mode=True)),
         )
+        return {
+            "total": agg["total"] or 0,
+            "live": agg["live"] or 0,
+            "mock": agg["mock"] or 0,
+            "published": agg["published"] or 0,
+            "draft": agg["draft"] or 0,
+            "strict": agg["strict"] or 0,
+        }
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        summary = self._build_summary(queryset)
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            response = self.get_paginated_response(serializer.data)
+            response.data = {
+                "count": response.data.get("count"),
+                "next": response.data.get("next"),
+                "previous": response.data.get("previous"),
+                "summary": summary,
+                "results": response.data.get("results", []),
+            }
+            return response
+        serializer = self.get_serializer(queryset, many=True)
         return APIResponse.ok(
-            data={
-                "total": agg["total"] or 0,
-                "live": agg["live"] or 0,
-                "mock": agg["mock"] or 0,
-                "published": agg["published"] or 0,
-                "draft": agg["draft"] or 0,
-                "strict": agg["strict"] or 0,
-            },
+            data={"summary": summary, "results": serializer.data},
+        )
+
+    # Kept as a standalone fallback for callers that only need the counters.
+    @action(detail=False, methods=["get"], url_path="summary",
+            permission_classes=[IsAdminOrReadOnlyForStaff])
+    def summary(self, request):
+        qs = self.filter_queryset(self.get_queryset())
+        return APIResponse.ok(
+            data=self._build_summary(qs),
             message="Exam summary retrieved.",
         )
 
