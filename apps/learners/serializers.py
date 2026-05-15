@@ -68,6 +68,7 @@ class LearnerSerializer(serializers.ModelSerializer):
     pastExamCount = serializers.SerializerMethodField()
     failedExamCount = serializers.SerializerMethodField()
     pinWindowActive = serializers.SerializerMethodField()
+    passedExamConfigIds = serializers.SerializerMethodField()
 
     class Meta:
         model = LearnerProfile
@@ -79,7 +80,7 @@ class LearnerSerializer(serializers.ModelSerializer):
             "allowImmediateStart", "pin",
             "nextExamTitle", "nextExamInvigilatorName",
             "upcomingExamCount", "pastExamCount", "failedExamCount",
-            "pinWindowActive",
+            "pinWindowActive", "passedExamConfigIds",
             "createdAt",
         ]
 
@@ -232,6 +233,20 @@ class LearnerSerializer(serializers.ModelSerializer):
             return False
         now = timezone.now()
         return session.pin_window_start <= now <= session.pin_window_end
+
+    @extend_schema_field(serializers.ListField(child=serializers.UUIDField()))
+    def get_passedExamConfigIds(self, obj):
+        # Exams the learner has already passed — UI uses this to hide them
+        # from the "Schedule new exam" dropdown so the same paper can't be
+        # re-scheduled. Uses the prefetched session.result OneToOne.
+        ids = set()
+        for s in self._all_sessions(obj):
+            try:
+                if s.result and s.result.passed:
+                    ids.add(str(s.exam_config_id))
+            except Exception:
+                continue
+        return sorted(ids)
 
 
 # ─────────────────────────────────────────────────────────────
