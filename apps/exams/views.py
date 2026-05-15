@@ -165,7 +165,13 @@ class ExamConfigViewSet(viewsets.ModelViewSet):
     responses={200: envelope_detail(ExamConfigSerializer(many=True), message_example="Mock exams retrieved successfully."), **DEFAULT_ERROR_RESPONSES},
 )
 class MockExamListView(APIView):
-    """Learner-visible published mock exams (no PIN required)."""
+    """Learner-visible published mock exams (no PIN required).
+
+    For learners, the list is scoped to qualifications they're enrolled in
+    (any non-withdrawn enrollment) — so a learner only sees the mocks for
+    qualifications they actually take. Admin/invigilators see all published
+    mocks.
+    """
     permission_classes = [IsAuthenticated]
     def get(self, request):
         qs = (
@@ -173,6 +179,14 @@ class MockExamListView(APIView):
             .select_related("qualification")  # serializer reads qualification.title
             .filter(exam_type="mock", status="published")
         )
+        if getattr(request.user, "role", None) == "learner":
+            profile = getattr(request.user, "learner_profile", None)
+            qualification_ids = (
+                profile.enrollments
+                .exclude(status="withdrawn")
+                .values_list("qualification_id", flat=True)
+            ) if profile else []
+            qs = qs.filter(qualification_id__in=list(qualification_ids))
         return APIResponse.ok(
             data=ExamConfigSerializer(qs, many=True).data,
             message="Mock exams retrieved successfully.",
