@@ -37,6 +37,7 @@ from datetime import datetime, timezone as dt_tz, timedelta
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.db import transaction
+from django.db.models import Count, Q
 from drf_spectacular.utils import extend_schema, extend_schema_view, inline_serializer
 from rest_framework import viewsets, status, mixins
 from rest_framework.decorators import action
@@ -153,10 +154,66 @@ class ExamConfigViewSet(viewsets.ModelViewSet):
       - Admin exam setup screens use this endpoint to create and maintain the
         reusable exam configuration attached to a qualification.
       - Learner exam runtime does not call this endpoint directly.
+
+    Query params (list):
+      - search           : free-text against title / qualification title / code
+      - status           : "draft" | "published"
+      - exam_type        : "live"  | "mock"
+      - qualification_id : UUID
+      - strict_mode      : "true" | "false"
     """
     queryset = ExamConfig.objects.select_related("qualification")
     serializer_class = ExamConfigSerializer
     permission_classes = [IsAdminOrReadOnlyForStaff]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        params = self.request.query_params
+        search = (params.get("search") or "").strip()
+        if search:
+            qs = qs.filter(
+                Q(title__icontains=search)
+                | Q(qualification__title__icontains=search)
+                | Q(qualification__code__icontains=search)
+            )
+        for field in ("status", "exam_type"):
+            value = params.get(field)
+            if value:
+                qs = qs.filter(**{field: value})
+        if qid := params.get("qualification_id"):
+            qs = qs.filter(qualification_id=qid)
+        if strict := params.get("strict_mode"):
+            qs = qs.filter(strict_mode=strict.lower() == "true")
+        return qs
+
+    @action(detail=False, methods=["get"], url_path="summary",
+            permission_classes=[IsAdminOrReadOnlyForStaff])
+    def summary(self, request):
+        """Aggregate counts for the admin Exams summary cards.
+
+        Honors the same filters as list, so the summary reflects the current
+        filter context (e.g. counts for a specific qualification).
+        """
+        qs = self.get_queryset()
+        agg = qs.aggregate(
+            total=Count("id"),
+            live=Count("id", filter=Q(exam_type="live")),
+            mock=Count("id", filter=Q(exam_type="mock")),
+            published=Count("id", filter=Q(status="published")),
+            draft=Count("id", filter=Q(status="draft")),
+            strict=Count("id", filter=Q(strict_mode=True)),
+        )
+        return APIResponse.ok(
+            data={
+                "total": agg["total"] or 0,
+                "live": agg["live"] or 0,
+                "mock": agg["mock"] or 0,
+                "published": agg["published"] or 0,
+                "draft": agg["draft"] or 0,
+                "strict": agg["strict"] or 0,
+            },
+            message="Exam summary retrieved.",
+        )
 
 
 @extend_schema(
