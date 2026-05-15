@@ -379,6 +379,35 @@ class ExamSessionViewSet(viewsets.ModelViewSet):
             message="Session ID verification updated successfully.",
         )
 
+    @action(detail=True, methods=["post"], url_path="cancel",
+            permission_classes=[IsAdmin])
+    def cancel(self, request, pk=None):
+        """Admin cancels a scheduled exam. No-op on already-completed sessions."""
+        reason = (request.data.get("reason") or "").strip()
+        with transaction.atomic():
+            session = self._get_locked_session(pk)
+            if session.status in {"completed", "cancelled"}:
+                return APIResponse.fail(
+                    message=f"Session is already {session.status}; cannot cancel.",
+                    errors={"status": [f"Session is {session.status}"]},
+                    status=400,
+                )
+            session.status = "cancelled"
+            session.pin_active = False
+            if reason:
+                # Reuse incident_notes for the audit trail since there's no
+                # dedicated cancellation reason column. Keep prior notes too.
+                prefix = "[CANCELLED] "
+                existing = (session.incident_notes or "").strip()
+                session.incident_notes = (
+                    f"{prefix}{reason}\n{existing}" if existing else f"{prefix}{reason}"
+                )
+            session.save(update_fields=["status", "pin_active", "incident_notes"])
+        return APIResponse.ok(
+            data=ExamSessionSerializer(session).data,
+            message="Session cancelled.",
+        )
+
     @action(detail=True, methods=["post"], url_path="unlock",
             permission_classes=[IsInvigilatorOrAdmin])
     def unlock(self, request, pk=None):

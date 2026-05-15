@@ -290,11 +290,43 @@ class _NestedExamSessionSerializer(serializers.Serializer):
     startedAt = serializers.DateTimeField(source="started_at", allow_null=True)
     submittedAt = serializers.DateTimeField(source="submitted_at", allow_null=True)
     createdAt = serializers.DateTimeField(source="created_at")
+    # Exposed so the admin learner detail modal can render result info and
+    # wire the "Request Retake" action without a second round-trip.
+    resultId = serializers.SerializerMethodField()
+    resultPassed = serializers.SerializerMethodField()
+    resultScorePercent = serializers.SerializerMethodField()
+    resultGrade = serializers.SerializerMethodField()
 
     @extend_schema_field(serializers.CharField())
     def get_invigilatorName(self, obj) -> str:
         u = obj.invigilator
         return f"{u.first_name} {u.last_name}".strip()
+
+    def _result(self, obj):
+        try:
+            return obj.result
+        except Exception:
+            return None
+
+    @extend_schema_field(serializers.UUIDField(allow_null=True))
+    def get_resultId(self, obj):
+        r = self._result(obj)
+        return str(r.id) if r else None
+
+    @extend_schema_field(serializers.BooleanField(allow_null=True))
+    def get_resultPassed(self, obj):
+        r = self._result(obj)
+        return r.passed if r else None
+
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
+    def get_resultScorePercent(self, obj):
+        r = self._result(obj)
+        return r.score_percent if r else None
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_resultGrade(self, obj):
+        r = self._result(obj)
+        return r.grade if r else None
 
 
 class _NestedReasonableAdjustmentSerializer(serializers.Serializer):
