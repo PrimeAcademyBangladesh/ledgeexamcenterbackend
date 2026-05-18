@@ -1,7 +1,9 @@
 from rest_framework import status
 from rest_framework.test import APITestCase
 
+from apps.exams.models import ExamConfig, ExamSession
 from apps.invigilators.models import InvigilatorAvailability
+from apps.qualifications.models import Level, Qualification, Sector
 from apps.users.models import Role, User
 
 
@@ -35,6 +37,50 @@ class InvigilatorAvailabilityApiTests(APITestCase):
             start_time="09:00",
             end_time="11:00",
         )
+
+    def test_my_sessions_includes_learner_uln(self):
+        learner = User.objects.create_user(
+            email="availability-learner@example.com",
+            password="LearnerPass123!",
+            first_name="Lina",
+            last_name="Student",
+            role=Role.LEARNER,
+        )
+        learner.learner_profile.uln = "1234567890"
+        learner.learner_profile.save(update_fields=["uln"])
+
+        level = Level.objects.create(name="level-4")
+        sector = Sector.objects.create(name="Business", code="BUS")
+        qualification = Qualification.objects.create(
+            code="QUAL-SESSION",
+            title="Session Qualification",
+            sector=sector,
+            level=level,
+            is_active=True,
+        )
+        exam_config = ExamConfig.objects.create(
+            title="Knowledge Exam",
+            qualification=qualification,
+            questions_per_exam=5,
+            time_limit_minutes=60,
+            status="published",
+        )
+        ExamSession.objects.create(
+            exam_config=exam_config,
+            learner=learner,
+            invigilator=self.invigilator,
+            scheduled_date="2026-06-01",
+            scheduled_time="09:00",
+            pin="123456",
+            pin_active=True,
+            status="scheduled",
+        )
+
+        self.client.force_authenticate(user=self.invigilator)
+        response = self.client.get("/invigilators/me/sessions/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data[0]["learner_uln"], "1234567890")
 
     def test_admin_can_list_invigilator_availability(self):
         self.client.force_authenticate(user=self.admin)

@@ -104,7 +104,7 @@ class ExamSessionSerializer(serializers.ModelSerializer):
     exam_title = serializers.CharField(source="exam_config.title", read_only=True)
     qualification_title = serializers.CharField(source="exam_config.qualification.title", read_only=True)
     learner_name = serializers.SerializerMethodField()
-    learner_uln = serializers.CharField(source="learner.uln", read_only=True)
+    learner_uln = serializers.SerializerMethodField()
     invigilator_name = serializers.SerializerMethodField()
     question_ids = serializers.JSONField(source="question_set", read_only=True)
 
@@ -129,6 +129,11 @@ class ExamSessionSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.CharField())
     def get_learner_name(self, obj) -> str:
         return f"{obj.learner.first_name} {obj.learner.last_name}".strip()
+
+    @extend_schema_field(serializers.CharField(allow_blank=True, allow_null=True))
+    def get_learner_uln(self, obj) -> str:
+        profile = getattr(obj.learner, "learner_profile", None)
+        return profile.uln if profile and profile.uln else ""
 
     @extend_schema_field(serializers.CharField())
     def get_invigilator_name(self, obj) -> str:
