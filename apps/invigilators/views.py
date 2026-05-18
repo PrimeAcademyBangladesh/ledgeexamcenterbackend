@@ -284,7 +284,10 @@ class InvigilatorViewSet(viewsets.ModelViewSet):
             )
         if request.method == "GET":
             slots = InvigilatorAvailability.objects.filter(user=request.user, is_active=True)
-            return Response(AvailabilitySerializer(slots, many=True).data)
+            return APIResponse.ok(
+                data=AvailabilitySerializer(slots, many=True).data,
+                message="Availability retrieved.",
+            )
         # POST
         ser = AvailabilitySerializer(data=request.data)
         ser.is_valid(raise_exception=True)
@@ -293,7 +296,11 @@ class InvigilatorViewSet(viewsets.ModelViewSet):
             "start_time":  ser.validated_data["start_time"],
             "end_time":    ser.validated_data["end_time"],
         })
-        return Response(AvailabilitySerializer(slot).data, status=status.HTTP_201_CREATED)
+        return APIResponse.ok(
+            data=AvailabilitySerializer(slot).data,
+            message="Availability slot created.",
+            status=status.HTTP_201_CREATED,
+        )
 
 
 @extend_schema(tags=["Invigilator"], responses={200: envelope_array(InvigilatorDropDownSerializer, many=True), **DEFAULT_ERROR_RESPONSES})
