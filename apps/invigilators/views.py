@@ -17,6 +17,13 @@ GET    /api/invigilators/by-code/{code}/  lookup by provider_code
 GET    /api/invigilators/me/sessions/     sessions assigned to the logged-in invigilator
 GET    /api/invigilators/me/availability/ availability slots for current user
 POST   /api/invigilators/me/availability/ create a slot
+PATCH  /api/invigilators/me/availability/{slot_id}/ update a slot
+DELETE /api/invigilators/me/availability/{slot_id}/ delete a slot
+
+GET    /api/invigilators/{id}/availability/ availability slots for an invigilator (admin)
+POST   /api/invigilators/{id}/availability/ create a slot for an invigilator (admin)
+PATCH  /api/invigilators/{id}/availability/{slot_id}/ update a slot (admin)
+DELETE /api/invigilators/{id}/availability/{slot_id}/ delete a slot (admin)
 
 GET    /api/provider-centres/             list of provider centres
 POST   /api/provider-centres/             create (admin)
@@ -145,6 +152,23 @@ class InvigilatorViewSet(viewsets.ModelViewSet):
         if self.action in ("update", "partial_update"):
             return UpdateInvigilatorSerializer
         return InvigilatorSerializer
+
+    def _ensure_availability_access(self, request, target_user):
+        if request.user.role == Role.ADMIN:
+            return None
+        if request.user.role == Role.INVIGILATOR and request.user.id == target_user.id:
+            return None
+        return APIResponse.fail(
+            message="Forbidden",
+            errors={"detail": ["You do not have permission to manage this invigilator's availability."]},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    def _get_availability_slot(self, target_user, slot_id):
+        return get_object_or_404(
+            InvigilatorAvailability.objects.filter(user=target_user),
+            pk=slot_id,
+        )
 
     # ----- list with summary block -----
     def _build_summary(self):
@@ -289,17 +313,108 @@ class InvigilatorViewSet(viewsets.ModelViewSet):
                 message="Availability retrieved.",
             )
         # POST
-        ser = AvailabilitySerializer(data=request.data)
+        ser = AvailabilitySerializer(
+            data=request.data,
+            context={"availability_user": request.user},
+        )
         ser.is_valid(raise_exception=True)
-        slot = InvigilatorAvailability.objects.create(user=request.user, **{
-            "day_of_week": ser.validated_data["day_of_week"],
-            "start_time":  ser.validated_data["start_time"],
-            "end_time":    ser.validated_data["end_time"],
-        })
+        slot = ser.save(user=request.user)
         return APIResponse.ok(
             data=AvailabilitySerializer(slot).data,
             message="Availability slot created.",
             status=status.HTTP_201_CREATED,
+        )
+
+    @extend_schema(tags=["Invigilator"], responses={200: envelope_array(AvailabilitySerializer, many=True), 201: envelope_detail(AvailabilitySerializer), **DEFAULT_ERROR_RESPONSES})
+    @action(detail=True, methods=["get", "post"], url_path="availability",
+            permission_classes=[IsAuthenticated])
+    def availability(self, request, pk=None):
+        target_user = self.get_object()
+        denied = self._ensure_availability_access(request, target_user)
+        if denied:
+            return denied
+
+        if request.method == "GET":
+            slots = InvigilatorAvailability.objects.filter(user=target_user, is_active=True)
+            return APIResponse.ok(
+                data=AvailabilitySerializer(slots, many=True).data,
+                message="Availability retrieved.",
+            )
+
+        serializer = AvailabilitySerializer(
+            data=request.data,
+            context={"availability_user": target_user},
+        )
+        serializer.is_valid(raise_exception=True)
+        slot = serializer.save(user=target_user)
+        return APIResponse.ok(
+            data=AvailabilitySerializer(slot).data,
+            message="Availability slot created.",
+            status=status.HTTP_201_CREATED,
+        )
+
+    @extend_schema(tags=["Invigilator"], responses={200: envelope_detail(AvailabilitySerializer), 204: EmptyEnvelope, **DEFAULT_ERROR_RESPONSES})
+    @action(
+        detail=False,
+        methods=["patch", "delete"],
+        url_path=r"me/availability/(?P<slot_id>[^/.]+)",
+        permission_classes=[IsAuthenticated],
+    )
+    def my_availability_slot(self, request, slot_id=None):
+        if request.user.role != Role.INVIGILATOR:
+            return APIResponse.fail(
+                message="Forbidden",
+                errors={"detail": ["Only invigilators can manage availability."]},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        slot = self._get_availability_slot(request.user, slot_id)
+        if request.method == "DELETE":
+            slot.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
+        serializer = AvailabilitySerializer(
+            slot,
+            data=request.data,
+            partial=True,
+            context={"availability_user": request.user},
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return APIResponse.ok(
+            data=AvailabilitySerializer(slot).data,
+            message="Availability slot updated.",
+        )
+
+    @extend_schema(tags=["Invigilator"], responses={200: envelope_detail(AvailabilitySerializer), 204: EmptyEnvelope, **DEFAULT_ERROR_RESPONSES})
+    @action(
+        detail=True,
+        methods=["patch", "delete"],
+        url_path=r"availability/(?P<slot_id>[^/.]+)",
+        permission_classes=[IsAuthenticated],
+    )
+    def availability_slot(self, request, pk=None, slot_id=None):
+        target_user = self.get_object()
+        denied = self._ensure_availability_access(request, target_user)
+        if denied:
+            return denied
+
+        slot = self._get_availability_slot(target_user, slot_id)
+        if request.method == "DELETE":
+            slot.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
+        serializer = AvailabilitySerializer(
+            slot,
+            data=request.data,
+            partial=True,
+            context={"availability_user": target_user},
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return APIResponse.ok(
+            data=AvailabilitySerializer(slot).data,
+            message="Availability slot updated.",
         )
 
 

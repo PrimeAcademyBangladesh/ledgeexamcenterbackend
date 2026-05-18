@@ -287,3 +287,52 @@ class AvailabilitySerializer(serializers.ModelSerializer):
     class Meta:
         model = InvigilatorAvailability
         fields = ["id", "dayOfWeek", "startTime", "endTime", "isActive"]
+        read_only_fields = ["id"]
+
+    def validate(self, attrs):
+        instance = getattr(self, "instance", None)
+        user = self.context.get("availability_user")
+        if user is None and instance is not None:
+            user = instance.user
+
+        day_of_week = attrs.get("day_of_week", getattr(instance, "day_of_week", None))
+        start_time = attrs.get("start_time", getattr(instance, "start_time", None))
+        end_time = attrs.get("end_time", getattr(instance, "end_time", None))
+        is_active = attrs.get("is_active", getattr(instance, "is_active", True))
+
+        if start_time and end_time and start_time >= end_time:
+            raise serializers.ValidationError(
+                {"endTime": ["End time must be later than start time."]}
+            )
+
+        if not (user and day_of_week is not None and start_time and end_time and is_active):
+            return attrs
+
+        overlap_qs = InvigilatorAvailability.objects.filter(
+            user=user,
+            is_active=True,
+            day_of_week=day_of_week,
+            start_time__lt=end_time,
+            end_time__gt=start_time,
+        )
+        if instance is not None:
+            overlap_qs = overlap_qs.exclude(pk=instance.pk)
+
+        overlap = overlap_qs.order_by("start_time").first()
+        if overlap:
+            day_label = overlap.get_day_of_week_display()
+            conflict_window = (
+                f"{overlap.start_time.strftime('%H:%M')}-{overlap.end_time.strftime('%H:%M')}"
+            )
+            raise serializers.ValidationError(
+                {
+                    "non_field_errors": [
+                        (
+                            f"An availability slot already exists for {day_label} "
+                            f"between {conflict_window}. Overlapping time ranges are not allowed."
+                        )
+                    ]
+                }
+            )
+
+        return attrs
