@@ -1,12 +1,13 @@
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import generics, parsers, status
+from rest_framework.permissions import AllowAny
 
 from core.permission import IsAdmin
 from core.responses import APIResponse
 from core.schemas import DEFAULT_ERROR_RESPONSES, envelope_detail
 
 from .models import SystemSettings
-from .serializers import SystemSettingsSerializer
+from .serializers import BrandMiniSerializer, SystemSettingsSerializer
 
 
 @extend_schema_view(
@@ -65,3 +66,11 @@ class SystemSettingsView(generics.RetrieveUpdateAPIView):
             message="System settings updated successfully.",
             status=status.HTTP_200_OK,
         )
+
+
+class BrandMiniView(generics.RetrieveAPIView):
+    serializer_class = BrandMiniSerializer
+    permission_classes = [AllowAny]
+
+    def get_object(self):
+        return SystemSettings.load()

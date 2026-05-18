@@ -136,3 +136,19 @@ class SystemSettingsSerializer(serializers.ModelSerializer):
                 ]
             )
         return instance
+
+
+class BrandMiniSerializer(serializers.ModelSerializer):
+    logoUrl = serializers.SerializerMethodField(read_only=True)
+    Site_name = serializers.CharField(source="org_name")
+
+    class Meta:
+        model = SystemSettings
+        fields = ["logoUrl", "Site_name"]
+
+    def get_logoUrl(self, obj) -> str | None:
+        if not obj.logo_url:
+            return None
+        request = self.context.get("request")
+        url = obj.logo_url.url
+        return request.build_absolute_uri(url) if request else url
