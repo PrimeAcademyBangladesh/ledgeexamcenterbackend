@@ -59,7 +59,7 @@ from core.permission import (
 from core.responses import APIResponse
 from .serializers import (
     ExamConfigSerializer,
-    ExamDropdownSerializer,
+    ExamConfigDropdownSerializer,
     ExamSessionSerializer, CreateExamSessionSerializer, UpdateSessionPinSerializer,
     ValidatePinRequestSerializer, ValidatePinResponseSerializer,
     SaveExamDraftSerializer, ExamDraftSerializer,
@@ -74,7 +74,6 @@ from .services import (
     create_scheduled_session, select_questions_for_learner,
     score_submission, is_resit_eligible,
 )
-from .serializers import ExamDropdownSerializer
 from rest_framework.generics import ListAPIView
 
 
@@ -1112,7 +1111,7 @@ class ExamDropdownViewSet(ListAPIView):
     exposing create/update/delete endpoints on the ExamConfig model.
     """
     queryset = ExamConfig.objects.filter(status="published").select_related("qualification")
-    serializer_class = ExamDropdownSerializer
+    serializer_class = ExamConfigDropdownSerializer
     permission_classes = [IsAuthenticated]
     pagination_class = None
 
@@ -1122,4 +1121,3 @@ class ExamDropdownViewSet(ListAPIView):
         if qualification_id:
             qs = qs.filter(qualification_id=qualification_id)
         return qs
-

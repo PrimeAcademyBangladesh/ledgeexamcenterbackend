@@ -81,7 +81,7 @@ class ExamConfigSerializer(serializers.ModelSerializer):
         return attrs
 
 
-class ExamDropdownSerializer(serializers.ModelSerializer):
+class ExamConfigDropdownSerializer(serializers.ModelSerializer):
     qualification_id = serializers.UUIDField(source="qualification_id", read_only=True)
     qualification_title = serializers.CharField(source="qualification.title", read_only=True)
 
