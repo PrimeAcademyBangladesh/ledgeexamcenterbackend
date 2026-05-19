@@ -1,6 +1,5 @@
 """
 Reusable services for the Exams app.
-
 The question-selection service is the single source of truth for picking
 questions. It is used by:
   * Scheduled session creation        (admin)
