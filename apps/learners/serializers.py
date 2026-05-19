@@ -52,6 +52,8 @@ class LearnerSerializer(serializers.ModelSerializer):
     # Most-recent active enrollment — UI shows "Qualification" column
     qualificationId = serializers.SerializerMethodField()
     qualificationName = serializers.SerializerMethodField()
+    qualificationCount = serializers.SerializerMethodField()
+    qualifications = serializers.SerializerMethodField()
     cohort = serializers.SerializerMethodField()
     employer = serializers.SerializerMethodField()
     knowledgeTestId = serializers.SerializerMethodField()
@@ -75,7 +77,8 @@ class LearnerSerializer(serializers.ModelSerializer):
         fields = [
             "id", "learnerId", "firstName", "lastName", "email", "uln",
             "dateOfBirth", "phone", "photo", "idVerified", "isActive",
-            "qualificationId", "qualificationName", "cohort", "employer",
+            "qualificationId", "qualificationName", "qualificationCount",
+            "qualifications", "cohort", "employer",
             "knowledgeTestId", "invigilatorId", "testDate", "testTime",
             "allowImmediateStart", "pin",
             "nextExamTitle", "nextExamInvigilatorName",
@@ -143,6 +146,33 @@ class LearnerSerializer(serializers.ModelSerializer):
     def get_qualificationName(self, obj) -> str:
         e = self._active_enrollment(obj)
         return e.qualification.title if e else ""
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_qualificationCount(self, obj) -> int:
+        # Count active enrollments via prefetched data (no extra query).
+        return sum(
+            1 for e in obj.enrollments.all() if e.status == EnrollmentStatus.ACTIVE
+        )
+
+    @extend_schema_field(serializers.ListField(child=serializers.DictField()))
+    def get_qualifications(self, obj):
+        # Every qualification the learner has been enrolled in — any status.
+        # Frontend filters as needed. Uses prefetched enrollments__qualification.
+        rows = [
+            {
+                "enrollmentId":      str(e.id),
+                "qualificationId":   str(e.qualification_id),
+                "qualificationName": e.qualification.title,
+                "qualificationCode": e.qualification.code,
+                "cohort":            e.cohort or "",
+                "employer":          e.employer or "",
+                "status":            e.status,
+                "enrolledAt":        e.enrolled_at.isoformat() if e.enrolled_at else None,
+            }
+            for e in obj.enrollments.all()
+        ]
+        rows.sort(key=lambda r: r["enrolledAt"] or "", reverse=True)
+        return rows
 
     @extend_schema_field(serializers.CharField())
     def get_cohort(self, obj) -> str:
