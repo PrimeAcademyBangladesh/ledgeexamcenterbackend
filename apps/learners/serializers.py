@@ -485,6 +485,19 @@ class RegisterLearnerSerializer(serializers.Serializer):
             raise serializers.ValidationError({"testDate": "This field is required."})
         if allow_immediate_start and scheduled_date is None:
             attrs["scheduled_date"] = timezone.localdate()
+
+        qualification_id = attrs.get("qualification_id")
+        exam_config_id = attrs.get("exam_config_id")
+        if qualification_id and exam_config_id:
+            matches = ExamConfig.objects.filter(
+                pk=exam_config_id,
+                qualification_id=qualification_id,
+                status="published",
+            ).exists()
+            if not matches:
+                raise serializers.ValidationError(
+                    {"knowledgeTestId": "Selected exam does not belong to the selected qualification."}
+                )
         return attrs
 
     @transaction.atomic
@@ -638,6 +651,30 @@ class UpdateLearnerSerializer(serializers.Serializer):
 
         if allow_immediate_start is True and scheduled_date is None:
             attrs.pop("scheduled_date", None)
+
+        qualification_id = attrs.get("qualification_id")
+        exam_config_id = attrs.get("exam_config_id")
+
+        if qualification_id is None and self.instance is not None:
+            enrollment = self._get_editable_enrollment(self.instance)
+            if enrollment is not None:
+                qualification_id = enrollment.qualification_id
+
+        if exam_config_id is None and self.instance is not None:
+            session = self._get_editable_session(self.instance)
+            if session is not None:
+                exam_config_id = session.exam_config_id
+
+        if qualification_id and exam_config_id:
+            matches = ExamConfig.objects.filter(
+                pk=exam_config_id,
+                qualification_id=qualification_id,
+                status="published",
+            ).exists()
+            if not matches:
+                raise serializers.ValidationError(
+                    {"knowledgeTestId": "Selected exam does not belong to the selected qualification."}
+                )
 
         return attrs
 

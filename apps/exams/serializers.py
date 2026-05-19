@@ -82,9 +82,20 @@ class ExamConfigSerializer(serializers.ModelSerializer):
 
 
 class ExamDropdownSerializer(serializers.ModelSerializer):
-     class Meta:
+    qualification_id = serializers.UUIDField(source="qualification_id", read_only=True)
+    qualification_title = serializers.CharField(source="qualification.title", read_only=True)
+
+    class Meta:
         model = ExamConfig
-        fields = ["id", "title"]
+        fields = [
+            "id",
+            "title",
+            "qualification_id",
+            "qualification_title",
+            "version_number",
+            "exam_type",
+            "status",
+        ]
 
 
 

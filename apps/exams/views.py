@@ -1116,4 +1116,10 @@ class ExamDropdownViewSet(ListAPIView):
     permission_classes = [IsAuthenticated]
     pagination_class = None
 
+    def get_queryset(self):
+        qs = super().get_queryset()
+        qualification_id = self.request.query_params.get("qualification_id")
+        if qualification_id:
+            qs = qs.filter(qualification_id=qualification_id)
+        return qs
 
