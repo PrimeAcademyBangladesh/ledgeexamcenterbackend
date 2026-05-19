@@ -112,6 +112,7 @@ class ExamQuestionSerializer(serializers.ModelSerializer):
 # ExamSession
 # ---------------------------------------------------------------------------
 class ExamSessionSerializer(serializers.ModelSerializer):
+    enrollment_id = serializers.UUIDField(read_only=True, allow_null=True)
     exam_title = serializers.CharField(source="exam_config.title", read_only=True)
     qualification_title = serializers.CharField(source="exam_config.qualification.title", read_only=True)
     learner_name = serializers.SerializerMethodField()
@@ -123,6 +124,7 @@ class ExamSessionSerializer(serializers.ModelSerializer):
         model = ExamSession
         fields = [
             "id",
+            "enrollment_id",
             "exam_config_id", "exam_title", "qualification_title",
             "learner_id", "learner_name", "learner_uln",
             "invigilator_id", "invigilator_name",
@@ -153,6 +155,7 @@ class ExamSessionSerializer(serializers.ModelSerializer):
 
 class CreateExamSessionSerializer(serializers.Serializer):
     """Payload for POST /api/exams/sessions/ — admin only."""
+    enrollment_id = serializers.UUIDField(required=False)
     exam_config_id = serializers.UUIDField()
     learner_id = serializers.UUIDField()
     invigilator_id = serializers.UUIDField()

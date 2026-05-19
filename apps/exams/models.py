@@ -80,6 +80,13 @@ class ExamSession(models.Model):
     exam_config = models.ForeignKey(
         ExamConfig, on_delete=models.PROTECT, related_name="sessions"
     )
+    enrollment = models.ForeignKey(
+        "learners.Enrollment",
+        on_delete=models.PROTECT,
+        related_name="exam_sessions",
+        null=True,
+        blank=True,
+    )
     learner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
@@ -142,6 +149,7 @@ class ExamSession(models.Model):
     class Meta:
         ordering = ["scheduled_date", "scheduled_time"]
         indexes = [
+            models.Index(fields=["enrollment", "status"]),
             models.Index(fields=["learner", "status"]),
             models.Index(fields=["invigilator", "scheduled_date"]),
         ]

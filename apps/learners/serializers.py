@@ -302,8 +302,13 @@ class _NestedEnrollmentSerializer(serializers.Serializer):
 class _NestedExamSessionSerializer(serializers.Serializer):
     """Read-only nested view of an ExamSession for the learner detail page."""
     id = serializers.UUIDField()
+    enrollmentId = serializers.UUIDField(source="enrollment_id", allow_null=True)
     examConfigId = serializers.UUIDField(source="exam_config_id")
     examTitle = serializers.CharField(source="exam_config.title")
+    qualificationId = serializers.UUIDField(source="exam_config.qualification_id")
+    qualificationName = serializers.CharField(source="exam_config.qualification.title")
+    versionNumber = serializers.CharField(source="exam_config.version_number")
+    examType = serializers.CharField(source="exam_config.exam_type")
     scheduledDate = serializers.DateField(source="scheduled_date")
     scheduledTime = serializers.TimeField(source="scheduled_time")
     invigilatorId = serializers.UUIDField(source="invigilator_id")
@@ -378,6 +383,7 @@ class LearnerDetailSerializer(LearnerSerializer):
     """
     idDocument = serializers.SerializerMethodField()
     enrollments = _NestedEnrollmentSerializer(many=True, read_only=True)
+    enrollmentSessions = serializers.SerializerMethodField()
     examSessions = serializers.SerializerMethodField()
     reasonableAdjustments = _NestedReasonableAdjustmentSerializer(
         many=True, read_only=True, source="reasonable_adjustments",
@@ -385,7 +391,7 @@ class LearnerDetailSerializer(LearnerSerializer):
 
     class Meta(LearnerSerializer.Meta):
         fields = LearnerSerializer.Meta.fields + [
-            "idDocument", "enrollments", "examSessions", "reasonableAdjustments",
+            "idDocument", "enrollments", "enrollmentSessions", "examSessions", "reasonableAdjustments",
         ]
 
     @extend_schema_field(serializers.CharField(allow_null=True))
@@ -397,6 +403,47 @@ class LearnerDetailSerializer(LearnerSerializer):
         # FK lives on User, not LearnerProfile.
         sessions = obj.user.exam_sessions_as_learner.all()
         return _NestedExamSessionSerializer(sessions, many=True, context=self.context).data
+
+    @extend_schema_field(serializers.ListField(child=serializers.DictField()))
+    def get_enrollmentSessions(self, obj):
+        enrollments = list(obj.enrollments.all())
+        sessions = list(obj.user.exam_sessions_as_learner.all())
+
+        grouped_rows = []
+        for enrollment in enrollments:
+            linked_sessions = [
+                session
+                for session in sessions
+                if (
+                    session.enrollment_id == enrollment.id
+                    or (
+                        session.enrollment_id is None
+                        and session.exam_config.qualification_id == enrollment.qualification_id
+                    )
+                )
+            ]
+            grouped_rows.append(
+                {
+                    "id": str(enrollment.id),
+                    "qualificationId": str(enrollment.qualification_id),
+                    "qualificationName": enrollment.qualification.title,
+                    "qualificationCode": enrollment.qualification.code,
+                    "cohort": enrollment.cohort,
+                    "employer": enrollment.employer,
+                    "status": enrollment.status,
+                    "enrolledAt": enrollment.enrolled_at.isoformat() if enrollment.enrolled_at else None,
+                    "expectedEndDate": enrollment.expected_end_date.isoformat() if enrollment.expected_end_date else None,
+                    "completedAt": enrollment.completed_at.isoformat() if enrollment.completed_at else None,
+                    "withdrawnAt": enrollment.withdrawn_at.isoformat() if enrollment.withdrawn_at else None,
+                    "withdrawalReason": enrollment.withdrawal_reason,
+                    "examSessions": _NestedExamSessionSerializer(
+                        linked_sessions,
+                        many=True,
+                        context=self.context,
+                    ).data,
+                }
+            )
+        return grouped_rows
 
 
 # ─────────────────────────────────────────────────────────────
@@ -534,7 +581,7 @@ class RegisterLearnerSerializer(serializers.Serializer):
         profile.save()
 
         # 2. Enrollment
-        Enrollment.objects.create(
+        enrollment = Enrollment.objects.create(
             learner=profile,
             qualification_id=qualification_id,
             cohort=cohort,
@@ -548,6 +595,7 @@ class RegisterLearnerSerializer(serializers.Serializer):
         invigilator = User.objects.get(pk=invigilator_id)
         create_scheduled_session(
             exam_config=exam_config,
+            enrollment=enrollment,
             learner=user,
             invigilator=invigilator,
             scheduled_date=scheduled_date,

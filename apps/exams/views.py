@@ -46,6 +46,7 @@ from rest_framework import serializers as drf_serializers
 from rest_framework.views import APIView
 
 from apps.questions.models import Question
+from apps.learners.models import Enrollment, EnrollmentStatus
 from apps.users.models import User
 from core.schemas import DEFAULT_ERROR_RESPONSES, envelope_action, envelope_detail, envelope_list
 from .models import (
@@ -426,6 +427,47 @@ class ExamSessionViewSet(viewsets.ModelViewSet):
         cfg = get_object_or_404(ExamConfig, id=v["exam_config_id"])
         learner = get_object_or_404(User, id=v["learner_id"], role="learner")
         invigilator = get_object_or_404(User, id=v["invigilator_id"], role="invigilator")
+        enrollment = None
+        if v.get("enrollment_id"):
+            enrollment = get_object_or_404(
+                Enrollment.objects.select_related("learner__user", "qualification"),
+                id=v["enrollment_id"],
+            )
+            if enrollment.learner.user_id != learner.id:
+                return APIResponse.fail(
+                    message="Enrollment does not belong to learner.",
+                    errors={"enrollment_id": ["Enrollment does not belong to learner."]},
+                    status=400,
+                )
+            if enrollment.status != EnrollmentStatus.ACTIVE:
+                return APIResponse.fail(
+                    message="Enrollment must be active.",
+                    errors={"enrollment_id": ["Enrollment must be active."]},
+                    status=400,
+                )
+            if enrollment.qualification_id != cfg.qualification_id:
+                return APIResponse.fail(
+                    message="Exam does not belong to enrollment qualification.",
+                    errors={"exam_config_id": ["Exam does not belong to enrollment qualification."]},
+                    status=400,
+                )
+        else:
+            enrollment = (
+                Enrollment.objects.select_related("learner__user", "qualification")
+                .filter(
+                    learner__user_id=learner.id,
+                    qualification_id=cfg.qualification_id,
+                    status=EnrollmentStatus.ACTIVE,
+                )
+                .order_by("-enrolled_at", "-created_at")
+                .first()
+            )
+            if enrollment is None:
+                return APIResponse.fail(
+                    message="No active enrollment found for this learner and qualification.",
+                    errors={"enrollment_id": ["No active enrollment found for this learner and qualification."]},
+                    status=400,
+                )
         previous_result = None
         if v.get("previous_result_id"):
             previous_result = get_object_or_404(ExamResult, id=v["previous_result_id"])
@@ -433,6 +475,7 @@ class ExamSessionViewSet(viewsets.ModelViewSet):
         session = create_scheduled_session(
             exam_config=cfg, learner=learner, invigilator=invigilator,
             scheduled_date=v["scheduled_date"], scheduled_time=v["scheduled_time"],
+            enrollment=enrollment,
             pin=v.get("pin"),
             allow_immediate_start=v.get("allow_immediate_start", False),
             reasonable_adjustments=v.get("reasonable_adjustments", ""),
@@ -1067,6 +1110,16 @@ class CreateResitSessionView(APIView):
                 invigilator=invigilator,
                 scheduled_date=scheduled_date,
                 scheduled_time=scheduled_time,
+                enrollment=(
+                    Enrollment.objects.select_related("learner__user", "qualification")
+                    .filter(
+                        learner__user_id=prev.learner_id,
+                        qualification_id=cfg.qualification_id,
+                        status=EnrollmentStatus.ACTIVE,
+                    )
+                    .order_by("-enrolled_at", "-created_at")
+                    .first()
+                ),
                 previous_result=prev,
             )
             session = _session_qs().get(pk=session.pk)

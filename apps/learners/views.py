@@ -121,9 +121,15 @@ class LearnerViewSet(viewsets.GenericViewSet):
             .select_related("user")
             .prefetch_related(
                 "enrollments__qualification",
+                "enrollments__exam_sessions__exam_config",
+                "enrollments__exam_sessions__exam_config__qualification",
+                "enrollments__exam_sessions__invigilator",
+                "enrollments__exam_sessions__result",
                 "reasonable_adjustments",
                 "user__exam_sessions_as_learner__exam_config",
+                "user__exam_sessions_as_learner__exam_config__qualification",
                 "user__exam_sessions_as_learner__invigilator",
+                "user__exam_sessions_as_learner__result",
             )
         )
 

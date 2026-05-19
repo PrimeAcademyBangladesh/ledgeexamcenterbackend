@@ -111,6 +111,7 @@ def _compute_pin_window(
 def create_scheduled_session(
     *, exam_config, learner, invigilator,
     scheduled_date, scheduled_time,
+    enrollment=None,
     pin=None, allow_immediate_start=False,
     reasonable_adjustments="", extra_time_minutes=None,
     previous_result=None,
@@ -127,6 +128,7 @@ def create_scheduled_session(
 
     session = ExamSession.objects.create(
         exam_config=exam_config,
+        enrollment=enrollment,
         learner=learner,
         invigilator=invigilator,
         scheduled_date=scheduled_date,
