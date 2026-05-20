@@ -138,7 +138,7 @@ class InvigilatorViewSet(viewsets.ModelViewSet):
     queryset = (
         User.objects.filter(role=Role.INVIGILATOR)
         .select_related("staff_profile")
-        .order_by("first_name", "last_name")
+        .order_by("-date_joined", "-id")
     )
     permission_classes = [IsAuthenticated, IsAdminOrInvigilatorReadOnly]
     filter_backends = [DjangoFilterBackend]
@@ -487,7 +487,7 @@ class InvigilatorByProviderCodeView(APIView):
     destroy=extend_schema(tags=["Provider Centre"], responses={204: None, **DEFAULT_ERROR_RESPONSES}),
 )
 class ProviderCentreViewSet(viewsets.ModelViewSet):
-    queryset = ProviderCentre.objects.all().order_by("name")
+    queryset = ProviderCentre.objects.all().order_by("-created_at", "-id")
     serializer_class = ProviderCentreSerializer
     permission_classes = [IsAuthenticated, IsAdminOrInvigilatorReadOnly]
     filter_backends = [DjangoFilterBackend]

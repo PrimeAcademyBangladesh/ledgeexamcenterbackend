@@ -38,6 +38,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.db import transaction
 from django.db.models import Count, Q
+from django.db.models.functions import Coalesce
 from drf_spectacular.utils import extend_schema, extend_schema_view, inline_serializer
 from rest_framework import viewsets, status, mixins
 from rest_framework.decorators import action
@@ -163,7 +164,7 @@ class ExamConfigViewSet(viewsets.ModelViewSet):
       - qualification_id : UUID
       - strict_mode      : "true" | "false"
     """
-    queryset = ExamConfig.objects.select_related("qualification")
+    queryset = ExamConfig.objects.select_related("qualification").order_by("-created_at", "-id")
     serializer_class = ExamConfigSerializer
     permission_classes = [IsAdminOrReadOnlyForStaff]
 
@@ -387,7 +388,7 @@ class ExamSessionViewSet(viewsets.ModelViewSet):
     """
     queryset = ExamSession.objects.select_related(
         "exam_config", "exam_config__qualification", "learner", "invigilator"
-    )
+    ).order_by("-created_at", "-id")
     serializer_class = ExamSessionSerializer
     permission_classes = [IsAuthenticated]
     http_method_names = ["get", "post", "patch", "head", "options"]
@@ -396,15 +397,15 @@ class ExamSessionViewSet(viewsets.ModelViewSet):
         qs = super().get_queryset()
         u = self.request.user
         if u.role == "learner":
-            return qs.filter(learner=u)
+            return qs.filter(learner=u).order_by("-created_at", "-id")
         if u.role == "invigilator":
-            return qs.filter(invigilator=u)
+            return qs.filter(invigilator=u).order_by("-created_at", "-id")
         # Admin: optional ?learner_id / ?invigilator_id filters.
         if learner_id := self.request.query_params.get("learner_id"):
             qs = qs.filter(learner_id=learner_id)
         if invigilator_id := self.request.query_params.get("invigilator_id"):
             qs = qs.filter(invigilator_id=invigilator_id)
-        return qs
+        return qs.order_by("-created_at", "-id")
 
     def get_permissions(self):
         if self.action == "create":
@@ -1023,7 +1024,7 @@ class ExamResultViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewse
     """Read-only result endpoints for admin, invigilator, and learner result views."""
     queryset = ExamResult.objects.select_related(
         "learner", "exam_config", "qualification", "session"
-    ).prefetch_related("session__violations")
+    ).prefetch_related("session__violations").order_by("-submitted_at", "-id")
     serializer_class = ExamResultSerializer
     permission_classes = [IsAuthenticated]
 
@@ -1071,7 +1072,9 @@ class RetakeRequestViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
             qs = qs.filter(learner_id=lid)
         if previous_result_id := self.request.query_params.get("previous_result_id"):
             qs = qs.filter(previous_result_id=previous_result_id)
-        return qs
+        return qs.annotate(
+            activity_at=Coalesce("reviewed_at", "requested_at"),
+        ).order_by("-activity_at", "-requested_at")
 
 
 @extend_schema(

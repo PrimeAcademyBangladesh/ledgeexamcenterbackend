@@ -170,13 +170,13 @@ class SectorViewSet(AuditLogMixin, viewsets.ModelViewSet):
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     pagination_class = None
     search_fields = ["name", "code"]
-    ordering_fields = ["sort_order", "name"]
-    ordering = ["sort_order", "name"]
+    ordering_fields = ["created_at", "sort_order", "name"]
+    ordering = ["-created_at"]
 
     def get_queryset(self):
         return selectors.sector_list_qs(
             include_inactive=_include_inactive(self.request)
-        )
+        ).order_by("-created_at", "-id")
 
     def perform_destroy(self, instance):
         services.assert_sector_deletable(instance)
@@ -228,11 +228,11 @@ class LevelViewSet(viewsets.ModelViewSet):
     CRUD API for RQF levels.
     """
 
-    queryset = Level.objects.all()
+    queryset = Level.objects.all().order_by("-created_at", "-id")
     serializer_class = LevelSerializer
     permission_classes = [IsAdminOrReadOnlyForStaff]
     pagination_class = None
-    ordering = ["name"]
+    ordering = ["-created_at"]
 
     def perform_destroy(self, instance):
         services.assert_level_deletable(instance)
@@ -351,7 +351,7 @@ class QualificationViewSet(
     filterset_fields = ["sector", "level", "is_active"]
     search_fields = ["title", "code"]
     ordering_fields = ["title", "code", "created_at"]
-    ordering = ["title"]
+    ordering = ["-created_at"]
 
     def get_queryset(self):
         action = self.action

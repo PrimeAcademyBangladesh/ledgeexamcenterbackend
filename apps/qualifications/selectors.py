@@ -36,7 +36,7 @@ def qualification_list_qs(*, include_inactive: bool = False):
     qs = Qualification.objects.for_list()
     if not include_inactive:
         qs = qs.active()
-    return qs
+    return qs.order_by("-created_at", "-id")
 
 
 def qualification_detail_qs(*, include_inactive: bool = False):
@@ -98,10 +98,10 @@ def enrollment_list_qs(user):
     qs = QualificationEnrollment.objects.with_relations()
     role = getattr(user, "role", None)
     if role == "invigilator":
-        return qs.for_invigilator(user)
+        return qs.for_invigilator(user).order_by("-enrolled_at", "-id")
     if role == "learner":
-        return qs.for_learner(user)
-    return qs
+        return qs.for_learner(user).order_by("-enrolled_at", "-id")
+    return qs.order_by("-enrolled_at", "-id")
 
 
 def enrollment_for_learner_qs(user):

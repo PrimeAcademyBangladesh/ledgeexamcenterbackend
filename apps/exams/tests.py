@@ -1,4 +1,6 @@
-from datetime import date, time
+from datetime import date, time, timedelta
+
+from django.utils import timezone
 
 from django.urls import reverse
 from rest_framework import status
@@ -181,3 +183,25 @@ class RetakeResitFlowTests(APITestCase):
         self.assertEqual(row["new_session_id"], str(self.retake_request.new_session_id))
         self.assertEqual(row["scheduled_date"], "2026-05-23")
         self.assertEqual(row["scheduled_time"], "11:15:00")
+
+    def test_retake_list_orders_by_latest_activity_newest_first(self):
+        self.client.force_authenticate(self.admin)
+
+        older_approved = RetakeRequest.objects.create(
+            learner=self.learner,
+            exam_config=self.exam_config,
+            previous_result=self.previous_result,
+            status="approved",
+            reviewed_by=self.admin,
+            reviewed_at=timezone.now() - timedelta(days=2),
+        )
+        newer_pending = self.retake_request
+        newer_pending.requested_at = timezone.now() - timedelta(days=1)
+        newer_pending.save(update_fields=["requested_at"])
+
+        response = self.client.get(reverse("retake-list"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = [row["id"] for row in response.data["results"]]
+        self.assertEqual(ids[0], str(newer_pending.id))
+        self.assertEqual(ids[1], str(older_approved.id))
