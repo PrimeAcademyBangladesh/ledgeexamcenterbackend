@@ -324,3 +324,12 @@ class CreateResitSessionSerializer(serializers.Serializer):
 
 class DenyRetakeSerializer(serializers.Serializer):
     denial_reason = serializers.CharField()
+
+
+class RescheduleExamSessionSerializer(serializers.Serializer):
+    """Payload for PATCH /api/exams/sessions/{id}/reschedule/ — admin only."""
+    exam_config_id = serializers.UUIDField()
+    invigilator_id = serializers.UUIDField()
+    scheduled_date = serializers.DateField()
+    scheduled_time = serializers.TimeField()
+    pin = serializers.RegexField(r"^\d{6}$", required=False)

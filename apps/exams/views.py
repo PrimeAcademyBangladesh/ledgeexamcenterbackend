@@ -69,6 +69,7 @@ from .serializers import (
     ExamQuestionSerializer,
     RetakeRequestSerializer, CreateRetakeRequestSerializer,
     CreateResitSessionSerializer, DenyRetakeSerializer,
+    RescheduleExamSessionSerializer,
 )
 from .services import (
     _generate_pin, _compute_pin_window,
@@ -577,6 +578,92 @@ class ExamSessionViewSet(viewsets.ModelViewSet):
         return APIResponse.ok(
             data=ExamSessionSerializer(session).data,
             message="Session is now sit-now: PIN is valid immediately.",
+        )
+
+    @extend_schema(
+        tags=[TAG_EXAM_SESSION],
+        summary="Reschedule a scheduled exam session",
+        request=RescheduleExamSessionSerializer,
+        responses={200: envelope_detail(ExamSessionSerializer, message_example="Exam session rescheduled successfully."), **DEFAULT_ERROR_RESPONSES},
+    )
+    @action(detail=True, methods=["patch"], url_path="reschedule",
+            permission_classes=[IsAdmin])
+    def reschedule(self, request, pk=None):
+        """Change exam, invigilator, date/time, or PIN on a scheduled session.
+
+        Only allowed when status == "scheduled". If the exam config changes a
+        new frozen question set is generated from the learner's unseen pool.
+        """
+        s = RescheduleExamSessionSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+        v = s.validated_data
+
+        with transaction.atomic():
+            session = self._get_locked_session(pk)
+            if session.status != "scheduled":
+                return APIResponse.fail(
+                    message=f"Session is {session.status}; only 'scheduled' sessions can be rescheduled.",
+                    errors={"status": [f"Session is {session.status}"]},
+                    status=400,
+                )
+
+            new_cfg = get_object_or_404(ExamConfig, id=v["exam_config_id"])
+            new_invigilator = get_object_or_404(User, id=v["invigilator_id"], role="invigilator")
+
+            # Qualification must match the existing enrollment (if present)
+            if session.enrollment_id:
+                enrollment_qual_id = Enrollment.objects.values_list(
+                    "qualification_id", flat=True
+                ).get(pk=session.enrollment_id)
+                if str(new_cfg.qualification_id) != str(enrollment_qual_id):
+                    return APIResponse.fail(
+                        message="Exam does not belong to the enrollment's qualification.",
+                        errors={"exam_config_id": ["Exam must match the enrollment qualification."]},
+                        status=400,
+                    )
+
+            update_fields = [
+                "invigilator", "scheduled_date", "scheduled_time",
+                "allow_immediate_start", "pin_window_start", "pin_window_end",
+            ]
+
+            # Regenerate question set when the exam config changes
+            if str(v["exam_config_id"]) != str(session.exam_config_id):
+                learner = User.objects.get(pk=session.learner_id)
+                chosen = select_questions_for_learner(
+                    exam_config=new_cfg,
+                    learner=learner,
+                    mark_seen_session=session,
+                )
+                session.exam_config = new_cfg
+                session.question_set = [str(q.id) for q in chosen]
+                update_fields.extend(["exam_config", "question_set"])
+
+            session.invigilator = new_invigilator
+            session.scheduled_date = v["scheduled_date"]
+            session.scheduled_time = v["scheduled_time"]
+
+            if v.get("pin"):
+                session.pin = v["pin"]
+                update_fields.append("pin")
+
+            session.allow_immediate_start = False
+            pin_start, pin_end = _compute_pin_window(
+                session.scheduled_date,
+                session.scheduled_time,
+                new_cfg,
+                extra_minutes=session.extra_time_minutes or 0,
+                allow_immediate_start=False,
+            )
+            session.pin_window_start = pin_start
+            session.pin_window_end = pin_end
+
+            session.save(update_fields=update_fields)
+
+        session = _session_qs().get(pk=session.pk)
+        return APIResponse.ok(
+            data=ExamSessionSerializer(session).data,
+            message="Exam session rescheduled successfully.",
         )
 
     @action(detail=True, methods=["post"], url_path="unlock",
