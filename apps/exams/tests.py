@@ -92,6 +92,10 @@ class RetakeResitFlowTests(APITestCase):
             correct_answers=[1],
             created_by=self.admin,
         )
+        self.question_ids = [
+            str(q.id)
+            for q in Question.objects.filter(qualification=self.qualification).order_by("created_at")
+        ]
 
         self.previous_session = ExamSession.objects.create(
             exam_config=self.exam_config,
@@ -205,3 +209,24 @@ class RetakeResitFlowTests(APITestCase):
         ids = [row["id"] for row in response.data["results"]]
         self.assertEqual(ids[0], str(newer_pending.id))
         self.assertEqual(ids[1], str(older_approved.id))
+
+    def test_flagged_questions_endpoint_returns_mapped_questions(self):
+        self.client.force_authenticate(self.admin)
+        self.previous_session.question_set = self.question_ids
+        self.previous_session.draft_flagged_question_indexes = [1, 3]
+        self.previous_session.save(update_fields=["question_set", "draft_flagged_question_indexes"])
+
+        response = self.client.get(
+            reverse("exam-session-flagged-questions", kwargs={"pk": self.previous_session.id})
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.data["data"]["flagged_question_indexes"],
+            [1, 3],
+        )
+        self.assertEqual(len(response.data["data"]["flagged_questions"]), 2)
+        self.assertEqual(response.data["data"]["flagged_questions"][0]["index"], 1)
+        self.assertEqual(response.data["data"]["flagged_questions"][0]["question_text"], "Question 2")
+        self.assertEqual(response.data["data"]["flagged_questions"][1]["index"], 3)
+        self.assertEqual(response.data["data"]["flagged_questions"][1]["question_text"], "Question 4")

@@ -87,6 +87,26 @@ TAG_EXAM_RESULT = "Exam Result"
 TAG_EXAM_INTEGRITY = "Exam Integrity"
 TAG_EXAM_RETAKE = "Exam Retake"
 
+_FlaggedQuestionsEnvelope = inline_serializer(
+    name="FlaggedQuestionsEnvelope",
+    fields={
+        "success": drf_serializers.BooleanField(default=True),
+        "message": drf_serializers.CharField(),
+        "data": inline_serializer(
+            name="FlaggedQuestionsData",
+            fields={
+                "session_id": drf_serializers.UUIDField(),
+                "flagged_question_indexes": drf_serializers.ListField(
+                    child=drf_serializers.IntegerField()
+                ),
+                "flagged_questions": drf_serializers.JSONField(),
+            },
+        ),
+    },
+)
+
+
+
 
 # ---------------------------------------------------------------------------
 # Read-side helpers
@@ -703,6 +723,42 @@ class ExamSessionViewSet(viewsets.ModelViewSet):
             message="Session completed successfully.",
         )
 
+    @extend_schema(
+        tags=[TAG_EXAM_SESSION],
+        summary="Retrieve learner-flagged questions for a session",
+        responses={200: _FlaggedQuestionsEnvelope, **DEFAULT_ERROR_RESPONSES},
+    )
+    @action(detail=True, methods=["get"], url_path="flagged-questions",
+            permission_classes=[IsInvigilatorOrAdmin])
+    def flagged_questions(self, request, pk=None):
+        session = get_object_or_404(self.filter_queryset(self.get_queryset()), pk=pk)
+
+        q_map = {
+            str(q.id): q
+            for q in Question.objects.filter(id__in=session.question_set or [])
+        }
+        ordered_questions = [q_map[qid] for qid in (session.question_set or []) if qid in q_map]
+
+        rows = []
+        for index in session.draft_flagged_question_indexes or []:
+            question = ordered_questions[index] if 0 <= index < len(ordered_questions) else None
+            rows.append(
+                {
+                    "index": index,
+                    "question_id": question.id if question else None,
+                    "question_text": question.question_text if question else "",
+                }
+            )
+
+        return APIResponse.ok(
+            data={
+                "session_id": session.id,
+                "flagged_question_indexes": session.draft_flagged_question_indexes or [],
+                "flagged_questions": rows,
+            },
+            message="Flagged questions retrieved successfully.",
+        )
+
     @action(detail=True, methods=["patch"], url_path="draft",
             permission_classes=[IsLearner, IsSessionLearnerOwner])
     def save_draft(self, request, pk=None):
@@ -1266,6 +1322,7 @@ _GeneratePinEnvelope = inline_serializer(
         ),
     },
 )
+
 
 
 @extend_schema(
