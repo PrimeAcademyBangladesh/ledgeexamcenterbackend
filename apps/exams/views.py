@@ -908,6 +908,16 @@ class SubmitExamView(APIView):
                     status=400
                 )
 
+        if ExamResult.objects.filter(session=session).exists():
+            existing = ExamResult.objects.select_related(
+                "learner", "exam_config", "qualification", "session"
+            ).prefetch_related("session__violations").get(session=session)
+            return APIResponse.ok(
+                data=ExamResultSerializer(existing).data,
+                message="Exam already submitted.",
+                status=200,
+            )
+
         scoring = score_submission(session=session, answers=answers)
 
         User.objects.select_for_update().get(pk=session.learner_id)
