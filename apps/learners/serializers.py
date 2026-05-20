@@ -468,12 +468,7 @@ class RegisterLearnerSerializer(serializers.Serializer):
     firstName = serializers.CharField(source="first_name", max_length=80)
     lastName = serializers.CharField(source="last_name", max_length=80)
     email = serializers.EmailField()
-    # ULN is issued externally by the UK LRS. Optional: many learners arrive
-    # without one. Admin can fill it in later via PATCH.
-    uln = serializers.CharField(
-        required=False, allow_blank=True, allow_null=True,
-        validators=[drf_validate_uln],
-    )
+    uln = serializers.CharField(validators=[drf_validate_uln])
     password = serializers.CharField(write_only=True, min_length=8)
     dateOfBirth = serializers.DateField(source="date_of_birth", required=False, allow_null=True)
     phone = serializers.CharField(required=False, allow_blank=True, max_length=20)
@@ -503,9 +498,6 @@ class RegisterLearnerSerializer(serializers.Serializer):
         return value
 
     def validate_uln(self, value):
-        # Treat empty string as "no ULN" — return None so it lands as NULL.
-        if not value:
-            return None
         if LearnerProfile.objects.filter(uln=value).exists():
             raise serializers.ValidationError("ULN already in use.")
         return value
@@ -631,18 +623,11 @@ class LearnerDropDownSerializer(serializers.ModelSerializer):
 # ─────────────────────────────────────────────────────────────
 
 class UpdateLearnerSerializer(serializers.Serializer):
-    """
-    Admin edit dialog. ULN is included so admins can add or correct it later
-    (e.g. when a learner brings their ULN from another provider). Blank or
-    null clears the ULN; otherwise uniqueness is enforced (excluding self).
-    """
+    """Admin edit dialog — all named fields are required by the frontend form."""
     firstName = serializers.CharField(source="first_name", required=False)
     lastName = serializers.CharField(source="last_name", required=False)
     email = serializers.EmailField(required=False)
-    uln = serializers.CharField(
-        required=False, allow_blank=True, allow_null=True,
-        validators=[drf_validate_uln],
-    )
+    uln = serializers.CharField(validators=[drf_validate_uln])
     dateOfBirth = BlankableDateField(source="date_of_birth", required=False, allow_null=True)
     phone = serializers.CharField(required=False, allow_blank=True, max_length=20)
     qualificationId = serializers.UUIDField(source="qualification_id", required=False)
@@ -665,9 +650,6 @@ class UpdateLearnerSerializer(serializers.Serializer):
         return value
 
     def validate_uln(self, value):
-        # Empty string ⇒ clear the ULN (store NULL).
-        if not value:
-            return None
         qs = LearnerProfile.objects.filter(uln=value)
         if self.instance:
             qs = qs.exclude(pk=self.instance.pk)
