@@ -22,6 +22,7 @@ from rest_framework import filters, serializers as drf_serializers, status, view
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 
+from core.responses import APIResponse
 from core.schemas import DEFAULT_ERROR_RESPONSES, envelope_detail
 
 from .models import Question
@@ -156,7 +157,7 @@ class QuestionViewSet(viewsets.ModelViewSet):
             return response
 
         serializer = self.get_serializer(qs, many=True)
-        return Response({
+        return APIResponse.ok(data={
             "results": serializer.data,
             "pool_total": pool_total,
             "pool_active": pool_active,

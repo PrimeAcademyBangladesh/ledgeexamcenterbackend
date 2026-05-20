@@ -211,7 +211,7 @@ class InvigilatorViewSet(viewsets.ModelViewSet):
             }
             return response
         serializer = self.get_serializer(queryset, many=True)
-        return Response({"summary": summary, "results": serializer.data})
+        return APIResponse.ok(data={"summary": summary, "results": serializer.data})
 
     # ----- soft delete -----
     def destroy(self, request, *args, **kwargs):
@@ -226,21 +226,21 @@ class InvigilatorViewSet(viewsets.ModelViewSet):
         user = self.get_object()
         user.is_active = True
         user.save(update_fields=["is_active"])
-        return Response(InvigilatorSerializer(user).data)
+        return APIResponse.ok(data=InvigilatorSerializer(user).data, message="Invigilator activated.")
 
     @action(detail=True, methods=["post"], url_path="deactivate", permission_classes=[IsAuthenticated, IsAdmin])
     def deactivate(self, request, pk=None):
         user = self.get_object()
         user.is_active = False
         user.save(update_fields=["is_active"])
-        return Response(InvigilatorSerializer(user).data)
+        return APIResponse.ok(data=InvigilatorSerializer(user).data, message="Invigilator deactivated.")
 
     @action(detail=True, methods=["post"], url_path="resend-welcome", permission_classes=[IsAuthenticated, IsAdmin])
     def resend_welcome(self, request, pk=None):
         user = self.get_object()
         # TODO: integrate with your transactional email provider.
         # email_service.send_welcome(user)
-        return Response({"detail": f"Welcome email queued for {user.email}"})
+        return APIResponse.ok(message=f"Welcome email queued for {user.email}")
 
     # ----- /summary/ -----
     @action(detail=False, methods=["get"], url_path="summary",
@@ -264,7 +264,7 @@ class InvigilatorViewSet(viewsets.ModelViewSet):
         except ImportError:
             pass
 
-        return Response({
+        return APIResponse.ok(data={
             "total_invigilators": total,
             "active": active,
             "inactive": total - active,
@@ -287,13 +287,13 @@ class InvigilatorViewSet(viewsets.ModelViewSet):
             from apps.exams.models import ExamSession
             from apps.exams.serializers import ExamSessionSerializer
         except ImportError:
-            return Response([], status=200)
+            return APIResponse.ok(data=[])
 
         sessions = (ExamSession.objects
                     .filter(invigilator=request.user)
                     .select_related("learner", "exam_config", "exam_config__qualification")
                     .order_by("scheduled_date", "scheduled_time"))
-        return Response(ExamSessionSerializer(sessions, many=True).data)
+        return APIResponse.ok(data=ExamSessionSerializer(sessions, many=True).data)
 
     # ----- /me/availability/ -----
     @extend_schema(tags=["Invigilator"], responses={200: envelope_array(AvailabilitySerializer, many=True), 201: envelope_detail(AvailabilitySerializer), **DEFAULT_ERROR_RESPONSES})
@@ -473,7 +473,7 @@ class InvigilatorByProviderCodeView(APIView):
             .distinct()
         )
         user = get_object_or_404(qs)
-        return Response(InvigilatorSerializer(user).data)
+        return APIResponse.ok(data=InvigilatorSerializer(user).data)
 
 
 # ---------------------------------------------------------------------------
