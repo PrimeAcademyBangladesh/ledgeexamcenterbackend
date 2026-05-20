@@ -25,6 +25,7 @@ from .views import (
     ApproveRetakeView,
     CreateResitSessionView,
     DenyRetakeView,
+    ExamByQualificationDropdownView,
     ExamConfigViewSet,
     ExamDropdownViewSet,
     ExamResultViewSet,
@@ -48,6 +49,11 @@ router.register(r"", ExamConfigViewSet, basename="exam")
 
 urlpatterns = [
     path("dropdown/", ExamDropdownViewSet.as_view(), name="exam-dropdown"),
+    path(
+        "by-qualification/dropdown/",
+        ExamByQualificationDropdownView.as_view(),
+        name="exam-by-qualification-dropdown",
+    ),
     path("generate-pin/", GenerateExamPinView.as_view(), name="exam-generate-pin"),
     path("mock/", MockExamListView.as_view(), name="exam-mock-list"),
     path("mock/<uuid:exam_id>/start/", MockExamStartView.as_view(), name="exam-mock-start"),

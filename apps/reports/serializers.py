@@ -79,3 +79,23 @@ class ReportDetailSerializer(ReportRowSerializer):
 
     def get_resultLabel(self, obj) -> str:
         return "PASSED" if obj.passed else "DID NOT PASS"
+
+
+class DashboardAlertTargetSerializer(serializers.Serializer):
+    pageKey = serializers.CharField()
+    apiPath = serializers.CharField()
+    query = serializers.JSONField()
+
+
+class DashboardAlertCardSerializer(serializers.Serializer):
+    key = serializers.CharField()
+    title = serializers.CharField()
+    count = serializers.IntegerField()
+    level = serializers.ChoiceField(choices=["info", "success", "warning", "danger"])
+    target = DashboardAlertTargetSerializer()
+
+
+class DashboardAlertsSerializer(serializers.Serializer):
+    today = serializers.DateField()
+    generatedAt = serializers.DateTimeField()
+    cards = DashboardAlertCardSerializer(many=True)

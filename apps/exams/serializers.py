@@ -287,7 +287,11 @@ class RetakeRequestSerializer(serializers.ModelSerializer):
     qualification_name = serializers.CharField(source="exam_config.qualification.title", read_only=True)
     previous_score = serializers.IntegerField(source="previous_result.score_percent", read_only=True)
     previous_grade = serializers.CharField(source="previous_result.grade", read_only=True)
+    reviewed_by = serializers.UUIDField(source="reviewed_by_id", read_only=True, allow_null=True)
+    reviewer_name = serializers.SerializerMethodField()
     new_session_id = serializers.UUIDField(read_only=True)
+    scheduled_date = serializers.DateField(source="new_session.scheduled_date", read_only=True, allow_null=True)
+    scheduled_time = serializers.TimeField(source="new_session.scheduled_time", read_only=True, allow_null=True)
 
     class Meta:
         model = RetakeRequest
@@ -297,14 +301,20 @@ class RetakeRequestSerializer(serializers.ModelSerializer):
             "exam_config_id", "exam_title", "qualification_name",
             "previous_result_id", "previous_score", "previous_grade",
             "status", "requested_at",
-            "reviewed_at", "reviewed_by_id",
+            "reviewed_at", "reviewed_by", "reviewer_name",
             "denial_reason",
-            "new_session_id",
+            "new_session_id", "scheduled_date", "scheduled_time",
         ]
 
     @extend_schema_field(serializers.CharField())
     def get_learner_name(self, obj) -> str:
         return f"{obj.learner.first_name} {obj.learner.last_name}".strip()
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_reviewer_name(self, obj) -> str | None:
+        if not obj.reviewed_by:
+            return None
+        return f"{obj.reviewed_by.first_name} {obj.reviewed_by.last_name}".strip()
 
 
 class CreateRetakeRequestSerializer(serializers.Serializer):

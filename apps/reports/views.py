@@ -1,21 +1,27 @@
 import csv
 import io
+from datetime import timedelta
 
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema, extend_schema_view, inline_serializer
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.views import APIView
 
-from apps.exams.models import ExamResult
+from apps.exams.models import ExamResult, ExamSession, IntegrityViolation, RetakeRequest
 from core.permission import IsAdmin
 from core.responses import APIResponse
 from core.schemas import DEFAULT_ERROR_RESPONSES, envelope_detail
 
 from .filters import ReportFilter
 from .marksheet import render_marksheet
-from .serializers import ReportDetailSerializer, ReportRowSerializer
+from .serializers import (
+    DashboardAlertsSerializer,
+    ReportDetailSerializer,
+    ReportRowSerializer,
+)
 from .stats import compute_stats
 
 
@@ -193,6 +199,98 @@ class ReportExportView(APIView):
             except RuntimeError as exc:
                 return APIResponse.fail(message=str(exc), status=400)
         return _csv_response(rows)
+
+
+@extend_schema(
+    tags=["Reports"],
+    summary="Admin dashboard alert cards",
+    responses={200: envelope_detail(DashboardAlertsSerializer), **DEFAULT_ERROR_RESPONSES},
+)
+class DashboardAlertsView(APIView):
+    """
+    Compact admin dashboard counters for the first landing screen.
+
+    The backend returns count + routing metadata. Frontend should map
+    `target.pageKey` to the exact page route it uses today.
+    """
+
+    permission_classes = [IsAdmin]
+
+    def get(self, request):
+        today = timezone.localdate()
+        tomorrow = today + timedelta(days=1)
+
+        cards = [
+            {
+                "key": "today_exam_schedule",
+                "title": "Today's exams",
+                "count": ExamSession.objects.exclude(status="cancelled").filter(
+                    scheduled_date=today,
+                ).count(),
+                "level": "info",
+                "target": {
+                    "pageKey": "exam-sessions",
+                    "apiPath": "/api/exams/sessions/",
+                    "query": {"scheduled_date": today.isoformat()},
+                },
+            },
+            {
+                "key": "upcoming_exam_schedule",
+                "title": "Upcoming scheduled exams",
+                "count": ExamSession.objects.filter(
+                    status="scheduled",
+                    scheduled_date__gte=tomorrow,
+                ).count(),
+                "level": "info",
+                "target": {
+                    "pageKey": "exam-sessions",
+                    "apiPath": "/api/exams/sessions/",
+                    "query": {"status": "scheduled", "date_from": tomorrow.isoformat()},
+                },
+            },
+            {
+                "key": "new_retake_requests",
+                "title": "Pending retake requests",
+                "count": RetakeRequest.objects.filter(status="pending").count(),
+                "level": "warning",
+                "target": {
+                    "pageKey": "retake-requests",
+                    "apiPath": "/api/exams/retakes/",
+                    "query": {"status": "pending"},
+                },
+            },
+            {
+                "key": "today_finished_exams",
+                "title": "Today's finished exams",
+                "count": ExamResult.objects.filter(exam_date=today).count(),
+                "level": "success",
+                "target": {
+                    "pageKey": "reports",
+                    "apiPath": "/api/reports/",
+                    "query": {"date_from": today.isoformat(), "date_to": today.isoformat()},
+                },
+            },
+            {
+                "key": "today_integrity_events",
+                "title": "Today's integrity events",
+                "count": IntegrityViolation.objects.filter(occurred_at__date=today).count(),
+                "level": "danger",
+                "target": {
+                    "pageKey": "integrity-events",
+                    "apiPath": "/api/exams/violations/",
+                    "query": {"date_from": today.isoformat(), "date_to": today.isoformat()},
+                },
+            },
+        ]
+
+        return APIResponse.ok(
+            data={
+                "today": today,
+                "generatedAt": timezone.now(),
+                "cards": cards,
+            },
+            message="Dashboard alerts retrieved successfully.",
+        )
 
 
 HEADERS = [

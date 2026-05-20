@@ -1054,7 +1054,8 @@ class ExamResultViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewse
 class RetakeRequestViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     """Read-only retake request listing for learner and admin retake queues."""
     queryset = RetakeRequest.objects.select_related(
-        "learner", "exam_config", "exam_config__qualification", "previous_result"
+        "learner", "exam_config", "exam_config__qualification", "previous_result",
+        "reviewed_by", "new_session",
     )
     serializer_class = RetakeRequestSerializer
     permission_classes = [IsAuthenticated]
@@ -1068,6 +1069,8 @@ class RetakeRequestViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
             qs = qs.filter(status=status_q)
         if lid := self.request.query_params.get("learner_id"):
             qs = qs.filter(learner_id=lid)
+        if previous_result_id := self.request.query_params.get("previous_result_id"):
+            qs = qs.filter(previous_result_id=previous_result_id)
         return qs
 
 
@@ -1188,6 +1191,13 @@ class CreateResitSessionView(APIView):
                 ExamResult.objects.select_for_update(),
                 id=v["previous_result_id"],
             )
+            retake_request = (
+                RetakeRequest.objects
+                .select_for_update()
+                .filter(previous_result=prev, status="pending")
+                .order_by("-requested_at")
+                .first()
+            )
             cfg = prev.exam_config
             if not is_resit_eligible(prev.score_percent, cfg.grade_pass):
                 return APIResponse.fail(
@@ -1219,6 +1229,21 @@ class CreateResitSessionView(APIView):
                 ),
                 previous_result=prev,
             )
+            if retake_request is not None:
+                retake_request.status = "approved"
+                retake_request.reviewed_at = timezone.now()
+                retake_request.reviewed_by = request.user
+                retake_request.new_session = session
+                retake_request.denial_reason = ""
+                retake_request.save(
+                    update_fields=[
+                        "status",
+                        "reviewed_at",
+                        "reviewed_by",
+                        "new_session",
+                        "denial_reason",
+                    ]
+                )
             session = _session_qs().get(pk=session.pk)
         return APIResponse.ok(
             data=ExamSessionSerializer(session).data,
@@ -1260,14 +1285,31 @@ class ExamDropdownViewSet(ListAPIView):
     This is intentionally not a full ModelViewSet to avoid accidentally
     exposing create/update/delete endpoints on the ExamConfig model.
     """
-    queryset = ExamConfig.objects.filter(status="published").select_related("qualification")
+    queryset = ExamConfig.objects.select_related("qualification").order_by("title", "version_number")
     serializer_class = ExamConfigDropdownSerializer
     permission_classes = [IsAuthenticated]
     pagination_class = None
 
     def get_queryset(self):
         qs = super().get_queryset()
-        qualification_id = self.request.query_params.get("qualification_id")
+        qualification_id = (
+            self.request.query_params.get("qualification_id")
+            or self.request.query_params.get("qualification")
+        )
         if qualification_id:
             qs = qs.filter(qualification_id=qualification_id)
+        status_value = self.request.query_params.get("status")
+        if status_value:
+            qs = qs.filter(status=status_value)
         return qs
+
+
+class ExamByQualificationDropdownView(ExamDropdownViewSet):
+    """
+    Alias endpoint for exam dropdowns driven by a selected qualification.
+
+    Example:
+      GET /api/exams/by-qualification/dropdown/?qualification_id=<uuid>
+
+    If a qualification has 3 exams configured, this returns all 3.
+    """

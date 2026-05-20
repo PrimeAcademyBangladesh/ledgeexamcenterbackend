@@ -1,10 +1,11 @@
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timezone, timedelta
 
 from django.urls import reverse
+from django.utils import timezone as django_timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from apps.exams.models import ExamConfig, ExamResult, ExamSession
+from apps.exams.models import ExamConfig, ExamResult, ExamSession, IntegrityViolation, RetakeRequest
 from apps.qualifications.models import Level, Qualification, Sector
 from apps.users.models import Role, User
 
@@ -108,4 +109,78 @@ class ReportApiTests(APITestCase):
     def test_non_admin_forbidden(self):
         self.client.force_authenticate(user=self.invigilator)
         response = self.client.get(reverse("report-list"))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_dashboard_alerts_returns_admin_cards(self):
+        today = django_timezone.localdate()
+        future_date = today + timedelta(days=2)
+
+        today_session = ExamSession.objects.create(
+            exam_config=self.exam_config,
+            learner=self.learner,
+            invigilator=self.invigilator,
+            scheduled_date=today,
+            scheduled_time=time(11, 0),
+            pin="654321",
+            pin_active=True,
+            status="scheduled",
+        )
+        future_session = ExamSession.objects.create(
+            exam_config=self.exam_config,
+            learner=self.learner,
+            invigilator=self.invigilator,
+            scheduled_date=future_date,
+            scheduled_time=time(14, 0),
+            pin="654322",
+            pin_active=True,
+            status="scheduled",
+        )
+        ExamResult.objects.create(
+            session=today_session,
+            learner=self.learner,
+            exam_config=self.exam_config,
+            qualification=self.qualification,
+            score_percent=55,
+            correct_count=22,
+            total_questions=40,
+            grade="did_not_pass",
+            passed=False,
+            time_taken_seconds=3500,
+            violation_count=2,
+            invigilator_name="Ivy Gilator",
+            reasonable_adjustments="",
+            attempt_number=2,
+            exam_date=today,
+            submitted_at=django_timezone.now(),
+        )
+        RetakeRequest.objects.create(
+            learner=self.learner,
+            exam_config=self.exam_config,
+            previous_result=self.result,
+            status="pending",
+        )
+        IntegrityViolation.objects.create(
+            session=today_session,
+            type="tab_switch",
+            detail="Switched tabs",
+            question_number=1,
+            occurred_at=django_timezone.now(),
+        )
+
+        response = self.client.get(reverse("report-dashboard-alerts"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["success"])
+        cards = {card["key"]: card for card in response.data["data"]["cards"]}
+        self.assertEqual(cards["today_exam_schedule"]["count"], 1)
+        self.assertEqual(cards["upcoming_exam_schedule"]["count"], 1)
+        self.assertEqual(cards["new_retake_requests"]["count"], 1)
+        self.assertEqual(cards["today_finished_exams"]["count"], 1)
+        self.assertEqual(cards["today_integrity_events"]["count"], 1)
+        self.assertEqual(cards["new_retake_requests"]["target"]["pageKey"], "retake-requests")
+        self.assertEqual(cards["today_finished_exams"]["target"]["apiPath"], "/api/reports/")
+
+    def test_dashboard_alerts_non_admin_forbidden(self):
+        self.client.force_authenticate(user=self.invigilator)
+        response = self.client.get(reverse("report-dashboard-alerts"))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

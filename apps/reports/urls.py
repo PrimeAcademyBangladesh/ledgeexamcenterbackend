@@ -1,6 +1,6 @@
 from django.urls import path
 
-from .views import MarksheetView, ReportExportView, ReportViewSet
+from .views import DashboardAlertsView, MarksheetView, ReportExportView, ReportViewSet
 
 
 report_list = ReportViewSet.as_view({"get": "list"})
@@ -8,6 +8,7 @@ report_detail = ReportViewSet.as_view({"get": "retrieve"})
 
 urlpatterns = [
     # Specific paths before the detail/list routes.
+    path("dashboard-alerts/", DashboardAlertsView.as_view(), name="report-dashboard-alerts"),
     path("export/", ReportExportView.as_view(), name="report-export"),
     path("<uuid:pk>/marksheet/", MarksheetView.as_view(), name="report-marksheet"),
     path("<uuid:pk>/", report_detail, name="report-detail"),
