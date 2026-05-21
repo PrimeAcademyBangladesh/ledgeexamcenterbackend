@@ -50,7 +50,7 @@ from rest_framework import serializers as drf_serializers
 from rest_framework.views import APIView
 
 from apps.questions.models import Question
-from apps.learners.models import Enrollment, EnrollmentStatus
+from apps.learners.models import Enrollment, EnrollmentStatus, ReasonableAdjustment
 from apps.users.models import User
 from core.schemas import DEFAULT_ERROR_RESPONSES, envelope_action, envelope_detail, envelope_list
 from .models import (
@@ -497,14 +497,29 @@ class ExamSessionViewSet(viewsets.ModelViewSet):
         if v.get("previous_result_id"):
             previous_result = get_object_or_404(ExamResult, id=v["previous_result_id"])
 
+        # Auto-apply the learner's accepted reasonable adjustment unless
+        # the caller has explicitly supplied overrides.
+        ra_notes = v.get("reasonable_adjustments", "")
+        ra_extra_time = v.get("extra_time_minutes")
+        if not ra_notes and ra_extra_time is None:
+            active_ra = (
+                ReasonableAdjustment.objects
+                .filter(learner__user=learner, accepted=True)
+                .order_by("-created_at")
+                .first()
+            )
+            if active_ra:
+                ra_notes = active_ra.notes
+                ra_extra_time = active_ra.extra_time_minutes
+
         session = create_scheduled_session(
             exam_config=cfg, learner=learner, invigilator=invigilator,
             scheduled_date=v["scheduled_date"], scheduled_time=v["scheduled_time"],
             enrollment=enrollment,
             pin=v.get("pin"),
             allow_immediate_start=v.get("allow_immediate_start", False),
-            reasonable_adjustments=v.get("reasonable_adjustments", ""),
-            extra_time_minutes=v.get("extra_time_minutes"),
+            reasonable_adjustments=ra_notes,
+            extra_time_minutes=ra_extra_time,
             previous_result=previous_result,
         )
         # Refetch with relations so the response serializer doesn't N+1 on

@@ -35,6 +35,7 @@ INSTALLED_APPS = [
     'apps.integrity',
     'apps.adjustments',
     'apps.settings_app',
+    'apps.tts',
 ]
 
 MIDDLEWARE = [
@@ -150,6 +151,9 @@ REST_FRAMEWORK = {
         "blog": "500/day",
         "burst": "60/minute",
         "sustained": "5000/day",
+        # TTS: learners reading exam questions typically make < 30 calls per exam;
+        # 60/hour gives comfortable headroom while blocking automated abuse.
+        "tts": "60/hour",
     },
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }
@@ -294,3 +298,46 @@ EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
 EMAIL_USE_SSL = True
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'noreply@examapi.leadedgeltd.org')
+
+# ── Text-to-Speech (Piper TTS) ─────────────────────────────────────────────
+# Install Piper on the server: https://github.com/rhasspy/piper/releases
+# Download model files from: https://huggingface.co/rhasspy/piper-voices
+#
+# Each voice entry maps a safe API name to the on-disk .onnx model and its
+# companion .onnx.json config file. Never expose filesystem paths to clients;
+# the voice name is validated against this allowlist server-side.
+
+TTS_PIPER_BINARY  = os.environ.get("TTS_PIPER_BINARY",  "/usr/local/bin/piper")
+TTS_PIPER_TIMEOUT = int(os.environ.get("TTS_PIPER_TIMEOUT", "30"))  # seconds
+TTS_MAX_TEXT_LENGTH = 1500       # characters; matches frontend Read Aloud limit
+TTS_CACHE_TIMEOUT   = 3600       # seconds (1 hour); cached WAV is reused per (voice+text)
+
+# Preferred UK female voice. Assumption: en_GB-jenny_dioco-medium is the
+# closest freely available Piper voice to a southern English female accent.
+# Replace with en_GB-alba-medium (Scottish) or en_GB-aru-medium if preferred.
+TTS_DEFAULT_VOICE = os.environ.get("TTS_DEFAULT_VOICE", "southern_english_female")
+
+TTS_VOICES: dict = {
+    "southern_english_female": {
+        # Jenny DioCo — natural, clear UK female voice; medium quality.
+        "model":  os.environ.get(
+            "TTS_MODEL_SOUTHERN_ENGLISH_FEMALE",
+            "/models/piper/en_GB-jenny_dioco-medium.onnx",
+        ),
+        "config": os.environ.get(
+            "TTS_CONFIG_SOUTHERN_ENGLISH_FEMALE",
+            "/models/piper/en_GB-jenny_dioco-medium.onnx.json",
+        ),
+    },
+    "uk_male": {
+        # Alan — neutral UK male voice; medium quality.
+        "model":  os.environ.get(
+            "TTS_MODEL_UK_MALE",
+            "/models/piper/en_GB-alan-medium.onnx",
+        ),
+        "config": os.environ.get(
+            "TTS_CONFIG_UK_MALE",
+            "/models/piper/en_GB-alan-medium.onnx.json",
+        ),
+    },
+}

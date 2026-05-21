@@ -20,4 +20,5 @@ urlpatterns = [
     path('', include('apps.qualifications.urls')),
     path('exams/', include('apps.exams.urls')),
     path('integrity/', include('apps.integrity.urls')),
+    path('api/tts/', include('apps.tts.urls')),
 ]
