@@ -9,6 +9,8 @@ __pycache__
 *.egg-info
 dist/
 build/
+.agents
+.codex
 .venv
 venv/
 db.sqlite3
@@ -19,3 +21,6 @@ redis_data/
 .DS_Store
 API_CONTRACTS.md
 docs
+tests/
+pytest.ini
+examinationleadedge/settings/test.py

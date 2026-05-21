@@ -6,9 +6,33 @@ on:
       - dev
 
 jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+
+    env:
+      SECRET_KEY: ${{ secrets.SECRET_KEY }}
+      DJANGO_SETTINGS_MODULE: examinationleadedge.settings.test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests
+        run: python -m pytest tests/ -q
+
   deploy:
     name: Build and Deploy DEV
     runs-on: ubuntu-latest
+    needs: test
 
     steps:
       - name: Checkout code
@@ -34,7 +58,7 @@ jobs:
           target: "/var/www/examcenterleadedge"
           strip_components: 1
           rm: false
-          exclude: ".env,.env.prod,.env.dev,.env.example"
+          exclude: ".env,.env.prod,.env.dev,.env.example,tests/,pytest.ini,examinationleadedge/settings/test.py"
 
       - name: Deploy containers
         uses: appleboy/ssh-action@v0.1.10
