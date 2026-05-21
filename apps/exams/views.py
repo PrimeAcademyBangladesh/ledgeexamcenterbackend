@@ -32,8 +32,11 @@ Endpoint summary (all paths assume the urls.py in this folder):
   PUT    /api/retakes/{id}/deny/              admin
   POST   /api/retakes/resit/                  invigilator — create resit session
 """
+import csv
+import io
 from datetime import datetime, timezone as dt_tz, timedelta
 
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.db import transaction
@@ -1079,7 +1082,7 @@ class ReportViolationView(APIView):
 class ExamResultViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     """Read-only result endpoints for admin, invigilator, and learner result views."""
     queryset = ExamResult.objects.select_related(
-        "learner", "exam_config", "qualification", "session"
+        "learner", "learner__learner_profile", "exam_config", "qualification", "session"
     ).prefetch_related("session__violations").order_by("-submitted_at", "-id")
     serializer_class = ExamResultSerializer
     permission_classes = [IsAuthenticated]
@@ -1087,15 +1090,354 @@ class ExamResultViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewse
     def get_queryset(self):
         qs = super().get_queryset()
         u = self.request.user
-        learner_id = self.request.query_params.get("learner_id")
-        qualification_id = self.request.query_params.get("qualification_id")
         if u.role == "learner":
             qs = qs.filter(learner=u)
-        if learner_id:
+        if learner_id := self.request.query_params.get("learner_id"):
             qs = qs.filter(learner_id=learner_id)
-        if qualification_id:
+        if qualification_id := self.request.query_params.get("qualification_id"):
             qs = qs.filter(qualification_id=qualification_id)
+        if exam_config_id := self.request.query_params.get("exam_config_id"):
+            qs = qs.filter(exam_config_id=exam_config_id)
+        if grade := self.request.query_params.get("grade"):
+            qs = qs.filter(grade=grade)
+        if search := self.request.query_params.get("search", "").strip():
+            qs = qs.filter(
+                Q(learner__first_name__icontains=search)
+                | Q(learner__last_name__icontains=search)
+                | Q(learner__learner_profile__uln__icontains=search)
+                | Q(exam_config__title__icontains=search)
+            )
         return qs
+
+    # ── helpers ──────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _uln(result):
+        try:
+            return result.learner.learner_profile.uln or ""
+        except Exception:
+            return ""
+
+    @staticmethod
+    def _row(i, r):
+        minutes = round(r.time_taken_seconds / 60, 1) if r.time_taken_seconds else 0
+        uln = ""
+        try:
+            uln = r.learner.learner_profile.uln or ""
+        except Exception:
+            pass
+        return [
+            str(i),
+            f"{r.learner.first_name} {r.learner.last_name}".strip(),
+            uln,
+            r.qualification.title,
+            r.exam_config.title,
+            r.exam_date.strftime("%d/%m/%Y") if r.exam_date else "",
+            f"{r.score_percent}%",
+            r.grade.replace("_", " ").title(),
+            "Yes" if r.passed else "No",
+            str(minutes),
+            str(r.violation_count),
+            str(r.attempt_number),
+        ]
+
+    # ── CSV export ────────────────────────────────────────────────────────────
+
+    @action(detail=False, methods=["get"], url_path="export-csv")
+    def export_csv(self, request):
+        response = HttpResponse(content_type="text/csv")
+        response["Content-Disposition"] = 'attachment; filename="exam_results.csv"'
+        writer = csv.writer(response)
+        writer.writerow([
+            "#", "Learner Name", "ULN", "Qualification", "Exam",
+            "Date", "Score %", "Grade", "Passed",
+            "Time (min)", "Violations", "Attempt #",
+        ])
+        for i, r in enumerate(self.get_queryset(), 1):
+            writer.writerow(self._row(i, r))
+        return response
+
+    # ── PDF export ────────────────────────────────────────────────────────────
+
+    @action(detail=False, methods=["get"], url_path="export-pdf")
+    def export_pdf(self, request):
+        from reportlab.lib import colors as rl_colors
+        from reportlab.lib.pagesizes import A4, landscape
+        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.lib.units import cm
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+
+        results = list(self.get_queryset())
+        total = len(results)
+        passed_count = sum(1 for r in results if r.passed)
+        pass_rate = round(passed_count / total * 100) if total else 0
+        avg_score = round(sum(r.score_percent for r in results) / total) if total else 0
+        distinctions = sum(1 for r in results if r.grade == "distinction")
+
+        buf = io.BytesIO()
+        doc = SimpleDocTemplate(
+            buf,
+            pagesize=landscape(A4),
+            leftMargin=1.2 * cm, rightMargin=1.2 * cm,
+            topMargin=1.2 * cm, bottomMargin=1.2 * cm,
+        )
+        styles = getSampleStyleSheet()
+        HEADER_COLOR = rl_colors.HexColor("#1e3a5f")
+        GRADE_COLORS = {
+            "Distinction": rl_colors.HexColor("#d4edda"),
+            "Merit":       rl_colors.HexColor("#d1ecf1"),
+            "Pass":        rl_colors.HexColor("#fff3cd"),
+            "Did Not Pass": rl_colors.HexColor("#f8d7da"),
+        }
+
+        elements = [
+            Paragraph("Exam Results Report", styles["Title"]),
+            Spacer(1, 0.4 * cm),
+        ]
+
+        # Summary stats block
+        stats_table = Table(
+            [
+                ["Total Attempts", "Pass Rate", "Average Score", "Distinctions"],
+                [str(total), f"{pass_rate}%", f"{avg_score}%", str(distinctions)],
+            ],
+            colWidths=[5 * cm] * 4,
+        )
+        stats_table.setStyle(TableStyle([
+            ("BACKGROUND",   (0, 0), (-1, 0), HEADER_COLOR),
+            ("TEXTCOLOR",    (0, 0), (-1, 0), rl_colors.white),
+            ("FONTNAME",     (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE",     (0, 0), (-1, -1), 10),
+            ("ALIGN",        (0, 0), (-1, -1), "CENTER"),
+            ("VALIGN",       (0, 0), (-1, -1), "MIDDLE"),
+            ("BACKGROUND",   (0, 1), (-1, 1), rl_colors.HexColor("#f0f4f8")),
+            ("GRID",         (0, 0), (-1, -1), 0.5, rl_colors.grey),
+            ("TOPPADDING",   (0, 0), (-1, -1), 6),
+            ("BOTTOMPADDING",(0, 0), (-1, -1), 6),
+        ]))
+        elements.append(stats_table)
+        elements.append(Spacer(1, 0.5 * cm))
+
+        # Results table
+        col_headers = [
+            "#", "Learner Name", "ULN", "Qualification", "Exam",
+            "Date", "Score %", "Grade", "Passed",
+            "Time\n(min)", "Violations", "Attempt",
+        ]
+        # landscape A4 usable width ≈ 27.7 cm
+        col_widths = [
+            0.7*cm, 3.8*cm, 2.2*cm, 4.2*cm, 3.8*cm,
+            2.2*cm, 1.7*cm, 2.4*cm, 1.5*cm,
+            1.7*cm, 1.9*cm, 1.6*cm,
+        ]
+        rows = [col_headers] + [self._row(i, r) for i, r in enumerate(results, 1)]
+        table = Table(rows, colWidths=col_widths, repeatRows=1)
+
+        ts = [
+            ("BACKGROUND",    (0, 0), (-1, 0), HEADER_COLOR),
+            ("TEXTCOLOR",     (0, 0), (-1, 0), rl_colors.white),
+            ("FONTNAME",      (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE",      (0, 0), (-1, -1), 7.5),
+            ("ALIGN",         (0, 0), (-1, -1), "CENTER"),
+            ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
+            ("GRID",          (0, 0), (-1, -1), 0.3, rl_colors.HexColor("#cccccc")),
+            ("TOPPADDING",    (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ("ROWBACKGROUNDS",(0, 1), (-1, -1), [rl_colors.white, rl_colors.HexColor("#f9f9f9")]),
+        ]
+        for i, r in enumerate(results, 1):
+            bg = GRADE_COLORS.get(r.grade.replace("_", " ").title())
+            if bg:
+                ts.append(("BACKGROUND", (0, i), (-1, i), bg))
+        table.setStyle(TableStyle(ts))
+        elements.append(table)
+
+        doc.build(elements)
+        buf.seek(0)
+        response = HttpResponse(buf.read(), content_type="application/pdf")
+        response["Content-Disposition"] = 'attachment; filename="exam_results.pdf"'
+        return response
+
+    # ── Individual marksheet ──────────────────────────────────────────────────
+
+    @action(detail=True, methods=["get"], url_path="marksheet")
+    def marksheet(self, request, pk=None):
+        from reportlab.lib import colors as rc
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.units import cm
+        from reportlab.pdfgen import canvas as rl_canvas
+
+        result = self.get_object()
+
+        # ── palette ──────────────────────────────────────────────────────────
+        TEAL       = rc.HexColor("#0d6b7a")
+        TEAL_LIGHT = rc.HexColor("#1a8a9a")
+        GOLD       = rc.HexColor("#c8a84b")
+        LABEL_CLR  = rc.HexColor("#888888")
+        VALUE_CLR  = rc.HexColor("#1a1a1a")
+        CARD_BG    = rc.HexColor("#f4f4f4")
+        LINE_CLR   = rc.HexColor("#e0e0e0")
+        GRADE_CLR  = {
+            "distinction": rc.HexColor("#1a7a4a"),
+            "merit":       rc.HexColor("#1a6b8a"),
+            "pass":        rc.HexColor("#8a6b00"),
+            "did_not_pass": rc.HexColor("#8a1a1a"),
+        }
+
+        buf = io.BytesIO()
+        pw, ph = A4  # 595 × 842 pts
+        c = rl_canvas.Canvas(buf, pagesize=A4)
+
+        # ── HEADER ────────────────────────────────────────────────────────────
+        hdr_h = 4.8 * cm
+        c.setFillColor(TEAL)
+        c.rect(0, ph - hdr_h, pw, hdr_h, fill=1, stroke=0)
+
+        # Company name (left)
+        c.setFillColor(rc.white)
+        c.setFont("Helvetica-Bold", 22)
+        c.drawString(1.5 * cm, ph - 2.1 * cm, "LEAD EDGE LTD")
+        c.setFont("Helvetica", 9)
+        c.setFillColor(rc.HexColor("#b0d8e0"))
+        c.drawString(1.5 * cm, ph - 2.85 * cm, "End-Point Assessment Organisation")
+
+        # MARKSHEET label (right)
+        c.setFillColor(rc.white)
+        c.setFont("Helvetica-Bold", 16)
+        c.drawRightString(pw - 1.5 * cm, ph - 2.1 * cm, "MARKSHEET")
+        c.setFont("Helvetica", 9)
+        c.setFillColor(rc.HexColor("#b0d8e0"))
+        c.drawRightString(pw - 1.5 * cm, ph - 2.85 * cm, "Est. 2009")
+
+        # LE monogram logo (right of header, left of MARKSHEET text)
+        logo_cx = pw - 4.2 * cm
+        logo_cy = ph - 2.4 * cm
+        c.setFillColor(TEAL_LIGHT)
+        c.setStrokeColor(GOLD)
+        c.setLineWidth(2)
+        c.circle(logo_cx, logo_cy, 0.9 * cm, fill=1, stroke=1)
+        c.setFillColor(rc.white)
+        c.setFont("Helvetica-Bold", 13)
+        c.drawCentredString(logo_cx, logo_cy - 0.18 * cm, "LE")
+
+        # Gold stripe
+        c.setFillColor(GOLD)
+        c.rect(0, ph - hdr_h - 0.3 * cm, pw, 0.3 * cm, fill=1, stroke=0)
+
+        # ── CANDIDATE INFO CARD ───────────────────────────────────────────────
+        card_x, card_w, card_h = 1.5 * cm, pw - 3 * cm, 4.6 * cm
+        card_top = ph - hdr_h - 0.3 * cm - 0.6 * cm
+        card_y   = card_top - card_h
+
+        c.setFillColor(CARD_BG)
+        c.roundRect(card_x, card_y, card_w, card_h, radius=8, fill=1, stroke=0)
+
+        col1 = card_x + 1 * cm
+        col2 = card_x + card_w * 0.52
+
+        def label(x, y, txt):
+            c.setFillColor(LABEL_CLR)
+            c.setFont("Helvetica", 7)
+            c.drawString(x, y, txt)
+
+        def value(x, y, txt, size=12):
+            c.setFillColor(VALUE_CLR)
+            c.setFont("Helvetica-Bold", size)
+            c.drawString(x, y, txt)
+
+        # Row 1: Candidate Name | ULN
+        r1_lbl = card_y + card_h - 1.1 * cm
+        r1_val = r1_lbl - 0.55 * cm
+        label(col1, r1_lbl, "CANDIDATE NAME")
+        learner_name = f"{result.learner.first_name} {result.learner.last_name}".strip()
+        value(col1, r1_val, learner_name, 13)
+
+        label(col2, r1_lbl, "ULN")
+        try:
+            uln = result.learner.learner_profile.uln or "—"
+        except Exception:
+            uln = "—"
+        value(col2, r1_val, uln, 13)
+
+        # Divider
+        mid_y = card_y + card_h * 0.5
+        c.setStrokeColor(LINE_CLR)
+        c.setLineWidth(0.5)
+        c.line(col1, mid_y, card_x + card_w - 1 * cm, mid_y)
+
+        # Row 2: Qualification | Date
+        r2_lbl = mid_y - 0.65 * cm
+        r2_val = r2_lbl - 0.55 * cm
+        label(col1, r2_lbl, "QUALIFICATION")
+        value(col1, r2_val, result.qualification.title, 11)
+
+        label(col2, r2_lbl, "DATE")
+        date_str = result.exam_date.strftime("%d/%m/%Y") if result.exam_date else "—"
+        value(col2, r2_val, date_str, 11)
+
+        # ── EXAMINATION DETAILS ───────────────────────────────────────────────
+        sec_y = card_y - 1.3 * cm
+        c.setFillColor(VALUE_CLR)
+        c.setFont("Helvetica-Bold", 13)
+        c.drawString(1.5 * cm, sec_y, "Examination Details")
+        c.setStrokeColor(GOLD)
+        c.setLineWidth(2.5)
+        c.line(1.5 * cm, sec_y - 0.28 * cm, 7 * cm, sec_y - 0.28 * cm)
+
+        detail_rows = [
+            ("EXAM TITLE",       result.exam_config.title,
+             "INVIGILATOR",      result.invigilator_name or "—"),
+            ("SCORE",            f"{result.score_percent}%",
+             "GRADE",            result.grade.replace("_", " ").title()),
+            ("CORRECT ANSWERS",  f"{result.correct_count} / {result.total_questions}",
+             "PASSED",           "Yes" if result.passed else "No"),
+            ("TIME TAKEN",       f"{round(result.time_taken_seconds / 60, 1)} min",
+             "ATTEMPT",         f"#{result.attempt_number}"),
+        ]
+
+        dy = sec_y - 1.1 * cm
+        for l1, v1, l2, v2 in detail_rows:
+            label(1.5 * cm, dy, l1)
+            value(1.5 * cm, dy - 0.52 * cm, v1, 11)
+            label(col2, dy, l2)
+            value(col2, dy - 0.52 * cm, v2, 11)
+            dy -= 1.55 * cm
+
+        # ── GRADE BADGE (right side of detail section) ────────────────────────
+        badge_clr = GRADE_CLR.get(result.grade, TEAL)
+        bx = pw - 5.5 * cm
+        by = sec_y - 5.8 * cm
+        bw, bh = 4 * cm, 3 * cm
+        c.setFillColor(badge_clr)
+        c.roundRect(bx, by, bw, bh, radius=8, fill=1, stroke=0)
+        c.setFillColor(rc.white)
+        c.setFont("Helvetica", 8)
+        c.drawCentredString(bx + bw / 2, by + bh - 0.7 * cm, "OVERALL GRADE")
+        c.setFont("Helvetica-Bold", 14)
+        c.drawCentredString(bx + bw / 2, by + bh / 2 - 0.1 * cm,
+                            result.grade.replace("_", " ").upper())
+        c.setFont("Helvetica-Bold", 18)
+        c.drawCentredString(bx + bw / 2, by + 0.45 * cm, f"{result.score_percent}%")
+
+        # ── FOOTER ────────────────────────────────────────────────────────────
+        c.setStrokeColor(LINE_CLR)
+        c.setLineWidth(0.5)
+        c.line(1.5 * cm, 1.8 * cm, pw - 1.5 * cm, 1.8 * cm)
+        c.setFillColor(LABEL_CLR)
+        c.setFont("Helvetica", 8)
+        c.drawString(1.5 * cm, 1.2 * cm,
+                     "Lead Edge Ltd — End-Point Assessment Organisation")
+        c.drawRightString(pw - 1.5 * cm, 1.2 * cm,
+                          f"Generated: {timezone.now().strftime('%d/%m/%Y')}")
+
+        c.showPage()
+        c.save()
+        buf.seek(0)
+        last = result.learner.last_name.replace(" ", "_")
+        fname = f"marksheet_{last}_{result.exam_date}.pdf"
+        response = HttpResponse(buf.read(), content_type="application/pdf")
+        response["Content-Disposition"] = f'attachment; filename="{fname}"'
+        return response
 
 
 # ---------------------------------------------------------------------------

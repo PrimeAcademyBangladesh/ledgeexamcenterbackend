@@ -1,17 +1,18 @@
 """
 PDF marksheet renderer for ExamResult — used by /reports/{id}/marksheet/.
 
-Lays out a single A4 page with:
-  - Teal header band: logo + "MARKSHEET" + "Est. 2009"
-  - Gold accent line
-  - Candidate info block
-  - Examination details block
+Layout (portrait A4):
+  - Teal header: "LEAD EDGE LTD" left | logo centre-right | "MARKSHEET" / "Est. 2009" far right
+  - Gold accent rule
+  - Candidate info card (Name, ULN, Qualification, Date in DD/MM/YYYY)
+  - Examination Details block
   - Score + grade tile
-  - PASSED / DID NOT PASS line
-  - Legal footer
+  - PASSED / DID NOT PASS result line
+  - Teal footer band
 
-The logo file is expected at  static/marksheet/logo.png  (resolved via
-Django's staticfiles finders so it works both in dev and after collectstatic).
+Logo is loaded from the frontend assets (lead-edge-logo.webp) via Pillow, which
+converts it to PNG in memory so reportlab can render it. Falls back gracefully if
+the file is missing.
 """
 from __future__ import annotations
 
@@ -19,15 +20,16 @@ import io
 import os
 
 from django.conf import settings
-from django.contrib.staticfiles import finders
 from reportlab.lib.colors import HexColor, white
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
+from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
 
-# ── Brand palette (matches screenshot) ───────────────────────────
+# ── Brand palette ─────────────────────────────────────────────────
 TEAL        = HexColor("#1A4D58")
+TEAL_LIGHT  = HexColor("#b0d8e0")
 GOLD        = HexColor("#B8943C")
 LIGHT_BG    = HexColor("#F4F4F4")
 LIGHT_LABEL = HexColor("#6B7280")
@@ -39,20 +41,22 @@ PAGE_W, PAGE_H = A4
 MARGIN = 20 * mm
 
 
-# ── Logo resolution ──────────────────────────────────────────────
-def _logo_path() -> str | None:
+# ── Logo loader ───────────────────────────────────────────────────
+def _logo_reader() -> ImageReader | None:
     """
-    Resolve the marksheet logo. Returns an absolute filesystem path
-    or None if no logo is found (the header then falls back to text).
+    Return a reportlab ImageReader for the company logo, or None.
+    Looks only inside the backend's own static/marksheet/logo.png.
     """
-    found = finders.find("marksheet/logo.png")
-    if found:
-        return found
-    fallback = os.path.join(settings.BASE_DIR, "static", "marksheet", "logo.png")
-    return fallback if os.path.exists(fallback) else None
+    logo_path = os.path.join(settings.BASE_DIR, "static", "marksheet", "logo.png")
+    if os.path.exists(logo_path):
+        try:
+            return ImageReader(logo_path)
+        except Exception:
+            pass
+    return None
 
 
-# ── Public API ───────────────────────────────────────────────────
+# ── Public API ────────────────────────────────────────────────────
 def render_marksheet(result) -> bytes:
     """Render an ExamResult as a PDF and return the raw bytes."""
     buf = io.BytesIO()
@@ -73,44 +77,35 @@ def render_marksheet(result) -> bytes:
     return buf.getvalue()
 
 
-# ── Section renderers ────────────────────────────────────────────
+# ── Section renderers ─────────────────────────────────────────────
 def _draw_header(c: canvas.Canvas) -> None:
     band_h = 40 * mm
     c.setFillColor(TEAL)
     c.rect(0, PAGE_H - band_h, PAGE_W, band_h, fill=1, stroke=0)
 
-    # Logo (left) — optional
-    logo = _logo_path()
+    # Left: company name → MARKSHEET → Est. 2009 stacked
+    c.setFillColor(white)
+    c.setFont("Helvetica-Bold", 20)
+    c.drawString(MARGIN, PAGE_H - band_h + 26 * mm, "LEAD EDGE LTD")
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(MARGIN, PAGE_H - band_h + 18 * mm, "MARKSHEET")
+    c.setFillColor(TEAL_LIGHT)
+    c.setFont("Helvetica", 9)
+    c.drawString(MARGIN, PAGE_H - band_h + 12 * mm, "Est. 2009")
+
+    # Right: logo
+    logo = _logo_reader()
     if logo:
         try:
-            # Logo: centered vertically against the two text lines on its right.
-            # Text baselines sit at 22mm and 16mm above the band bottom, so the
-            # visual midpoint is ~19mm — placing the logo at y=12mm with h=18mm
-            # puts its center (21mm) close to that midpoint and keeps it inside
-            # the band without extending past the body text.
-            c.drawImage(
-                logo,
-                MARGIN, PAGE_H - band_h + 12 * mm,
-                width=18 * mm, height=18 * mm,
-                preserveAspectRatio=True, mask="auto",
-            )
-            text_x = MARGIN + 22 * mm
+            logo_h = 28 * mm
+            logo_w = 50 * mm          # wide enough for the deer silhouette
+            logo_x = PAGE_W - MARGIN - logo_w
+            logo_y = PAGE_H - band_h + (band_h - logo_h) / 2
+            c.drawImage(logo, logo_x, logo_y,
+                        width=logo_w, height=logo_h,
+                        preserveAspectRatio=True, mask="auto")
         except Exception:
-            text_x = MARGIN
-    else:
-        text_x = MARGIN
-
-    c.setFillColor(white)
-    c.setFont("Helvetica-Bold", 18)
-    c.drawString(text_x, PAGE_H - band_h + 22 * mm, "LEAD EDGE LTD")
-    c.setFont("Helvetica", 9)
-    c.drawString(text_x, PAGE_H - band_h + 16 * mm, "End-Point Assessment Organisation")
-
-    # Right side
-    c.setFont("Helvetica-Bold", 14)
-    c.drawRightString(PAGE_W - MARGIN, PAGE_H - band_h + 22 * mm, "MARKSHEET")
-    c.setFont("Helvetica", 9)
-    c.drawRightString(PAGE_W - MARGIN, PAGE_H - band_h + 16 * mm, "Est. 2009")
+            pass
 
 
 def _draw_gold_rule(c: canvas.Canvas, y: float) -> None:
@@ -119,9 +114,6 @@ def _draw_gold_rule(c: canvas.Canvas, y: float) -> None:
 
 
 def _draw_candidate_block(c: canvas.Canvas, result, top: float) -> float:
-    # Box height chosen so the bottom padding (below the last value baseline)
-    # matches the top padding (9mm above the first label). Last value sits at
-    # top-27mm; bottom at top-36mm gives 9mm symmetric padding.
     h = 36 * mm
     c.setFillColor(LIGHT_BG)
     c.roundRect(MARGIN, top - h, PAGE_W - 2 * MARGIN, h, 2 * mm, fill=1, stroke=0)
@@ -131,14 +123,20 @@ def _draw_candidate_block(c: canvas.Canvas, result, top: float) -> float:
     profile = getattr(learner, "learner_profile", None)
     uln = profile.uln if profile and profile.uln else "—"
 
+    # UK date format: DD/MM/YYYY
+    date_str = (
+        result.exam_date.strftime("%d/%m/%Y")
+        if result.exam_date else "—"
+    )
+
     col_w = (PAGE_W - 2 * MARGIN) / 2
-    left_x = MARGIN + 8 * mm
+    left_x  = MARGIN + 8 * mm
     right_x = MARGIN + col_w + 4 * mm
 
     _label_value(c, left_x,  top - 9 * mm,  "CANDIDATE NAME", full_name)
     _label_value(c, right_x, top - 9 * mm,  "ULN",            str(uln))
     _label_value(c, left_x,  top - 22 * mm, "QUALIFICATION",  result.qualification.title)
-    _label_value(c, right_x, top - 22 * mm, "DATE",           result.exam_date.isoformat())
+    _label_value(c, right_x, top - 22 * mm, "DATE",           date_str)
 
     return top - h
 
@@ -147,7 +145,6 @@ def _draw_examination_block(c: canvas.Canvas, result, top: float) -> float:
     c.setFillColor(DARK_TEXT)
     c.setFont("Helvetica-Bold", 13)
     c.drawString(MARGIN, top - 5 * mm, "Examination Details")
-    # underline
     c.setFillColor(GOLD)
     c.rect(MARGIN, top - 6.5 * mm, 30 * mm, 0.6 * mm, fill=1, stroke=0)
 
@@ -155,14 +152,14 @@ def _draw_examination_block(c: canvas.Canvas, result, top: float) -> float:
     time_str = f"{m}m {s}s"
     questions_str = f"{result.correct_count} / {result.total_questions} correct"
 
-    col_w = (PAGE_W - 2 * MARGIN) / 2
-    left_x = MARGIN
+    col_w  = (PAGE_W - 2 * MARGIN) / 2
+    left_x  = MARGIN
     right_x = MARGIN + col_w
 
     _label_value(c, left_x,  top - 16 * mm, "EXAM TITLE",  result.exam_config.title)
     _label_value(c, right_x, top - 16 * mm, "INVIGILATOR", result.invigilator_name or "—")
-    _label_value(c, left_x,  top - 28 * mm, "TIME TAKEN", time_str)
-    _label_value(c, right_x, top - 28 * mm, "QUESTIONS",  questions_str)
+    _label_value(c, left_x,  top - 28 * mm, "TIME TAKEN",  time_str)
+    _label_value(c, right_x, top - 28 * mm, "QUESTIONS",   questions_str)
 
     return top - 32 * mm
 
@@ -173,14 +170,14 @@ def _draw_score_tile(c: canvas.Canvas, result, top: float) -> float:
     c.setFillColor(TEAL)
     c.roundRect(MARGIN, tile_y, PAGE_W - 2 * MARGIN, tile_h, 2 * mm, fill=1, stroke=0)
 
-    # Left half: score
+    # Left half: score percentage
     c.setFillColor(white)
     c.setFont("Helvetica-Bold", 34)
     c.drawCentredString(MARGIN + 35 * mm, tile_y + 18 * mm, f"{result.score_percent}%")
     c.setFont("Helvetica", 9)
     c.drawCentredString(MARGIN + 35 * mm, tile_y + 10 * mm, "SCORE")
 
-    # Right half: gold pill with grade
+    # Right half: gold grade pill
     pill_w = 70 * mm
     pill_h = 22 * mm
     pill_x = PAGE_W - MARGIN - pill_w - 10 * mm
@@ -213,7 +210,7 @@ def _draw_footer(c: canvas.Canvas) -> None:
                         "This document is generated electronically and does not require a signature.")
 
 
-# ── Helpers ──────────────────────────────────────────────────────
+# ── Helpers ───────────────────────────────────────────────────────
 def _label_value(c: canvas.Canvas, x: float, y: float, label: str, value: str) -> None:
     c.setFillColor(LIGHT_LABEL)
     c.setFont("Helvetica", 7.5)
