@@ -150,7 +150,6 @@ def _draw_examination_block(c: canvas.Canvas, result, top: float) -> float:
 
     m, s = divmod(result.time_taken_seconds or 0, 60)
     time_str = f"{m}m {s}s"
-    questions_str = f"{result.correct_count} / {result.total_questions} correct"
 
     col_w  = (PAGE_W - 2 * MARGIN) / 2
     left_x  = MARGIN
@@ -159,7 +158,6 @@ def _draw_examination_block(c: canvas.Canvas, result, top: float) -> float:
     _label_value(c, left_x,  top - 16 * mm, "EXAM TITLE",  result.exam_config.title)
     _label_value(c, right_x, top - 16 * mm, "INVIGILATOR", result.invigilator_name or "—")
     _label_value(c, left_x,  top - 28 * mm, "TIME TAKEN",  time_str)
-    _label_value(c, right_x, top - 28 * mm, "QUESTIONS",   questions_str)
 
     return top - 32 * mm
 
@@ -175,7 +173,7 @@ def _draw_score_tile(c: canvas.Canvas, result, top: float) -> float:
     c.setFont("Helvetica-Bold", 34)
     c.drawCentredString(MARGIN + 35 * mm, tile_y + 18 * mm, f"{result.score_percent}%")
     c.setFont("Helvetica", 9)
-    c.drawCentredString(MARGIN + 35 * mm, tile_y + 10 * mm, "SCORE")
+    c.drawCentredString(MARGIN + 35 * mm - 30, tile_y + 10 * mm, "SCORE")
 
     # Right half: gold grade pill
     pill_w = 70 * mm
@@ -187,7 +185,7 @@ def _draw_score_tile(c: canvas.Canvas, result, top: float) -> float:
     c.setFillColor(DARK_TEXT)
     c.setFont("Helvetica-Bold", 16)
     grade_label = (result.grade or "").upper().replace("_", " ")
-    c.drawCentredString(pill_x + pill_w / 2, pill_y + 7 * mm, grade_label)
+    c.drawCentredString(pill_x + pill_w / 2, pill_y + 7 * mm + 50, grade_label)
 
     return tile_y
 
