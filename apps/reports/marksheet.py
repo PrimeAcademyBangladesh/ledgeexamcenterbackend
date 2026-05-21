@@ -173,7 +173,7 @@ def _draw_score_tile(c: canvas.Canvas, result, top: float) -> float:
     c.setFont("Helvetica-Bold", 34)
     c.drawCentredString(MARGIN + 35 * mm, tile_y + 18 * mm, f"{result.score_percent}%")
     c.setFont("Helvetica", 9)
-    c.drawCentredString(MARGIN + 35 * mm - 30, tile_y + 10 * mm, "SCORE")
+    c.drawCentredString(MARGIN + 35 * mm - 6, tile_y + 10 * mm, "SCORE")
 
     # Right half: gold grade pill
     pill_w = 70 * mm
@@ -185,7 +185,7 @@ def _draw_score_tile(c: canvas.Canvas, result, top: float) -> float:
     c.setFillColor(DARK_TEXT)
     c.setFont("Helvetica-Bold", 16)
     grade_label = (result.grade or "").upper().replace("_", " ")
-    c.drawCentredString(pill_x + pill_w / 2, pill_y + 7 * mm + 50, grade_label)
+    c.drawCentredString(pill_x + pill_w / 2, pill_y + 7 * mm + 5, grade_label)
 
     return tile_y
 
