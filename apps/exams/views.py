@@ -1212,22 +1212,10 @@ class ExamResultViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewse
 
         elements = []
 
-        # ── Centred header: logo above title ─────────────────────────────────
-        logo_path = os.path.join(settings.BASE_DIR, "static", "marksheet", "logo.png")
+        # ── Centred header: blue logo above title ────────────────────────────
+        logo_path = os.path.join(settings.BASE_DIR, "static", "marksheet", "logo_blue.png")
         if os.path.exists(logo_path):
-            from PIL import Image as PILImage
-            img = PILImage.open(logo_path).convert("RGBA")
-            r_ch, g_ch, b_ch, a_ch = img.split()
-            tinted = PILImage.merge("RGBA", (
-                r_ch.point(lambda _: 26),
-                g_ch.point(lambda _: 77),
-                b_ch.point(lambda _: 88),
-                a_ch,
-            ))
-            logo_buf = io.BytesIO()
-            tinted.save(logo_buf, format="PNG")
-            logo_buf.seek(0)
-            logo_img = Image(logo_buf, width=3.5 * cm, height=2.5 * cm)
+            logo_img = Image(logo_path, width=3.5 * cm, height=2.5 * cm)
         else:
             logo_img = Spacer(3.5 * cm, 2.5 * cm)
 

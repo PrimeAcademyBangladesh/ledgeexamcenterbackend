@@ -98,7 +98,7 @@ def _draw_header(c: canvas.Canvas) -> None:
     if logo:
         try:
             logo_h = 28 * mm
-            logo_w = 50 * mm          # wide enough for the deer silhouette
+            logo_w = 50 * mm
             logo_x = PAGE_W - MARGIN - logo_w
             logo_y = PAGE_H - band_h + (band_h - logo_h) / 2
             c.drawImage(logo, logo_x, logo_y,
