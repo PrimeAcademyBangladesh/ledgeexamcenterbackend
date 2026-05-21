@@ -1161,17 +1161,25 @@ class ExamResultViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewse
 
     @action(detail=False, methods=["get"], url_path="export-pdf")
     def export_pdf(self, request):
+        import os
+        from django.conf import settings
         from reportlab.lib import colors as rl_colors
         from reportlab.lib.pagesizes import A4, landscape
-        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
         from reportlab.lib.units import cm
-        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+        from reportlab.lib.utils import ImageReader
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
+
+        BLUE      = rl_colors.HexColor("#1A4D58")
+        BLUE_DARK = rl_colors.HexColor("#0F2F38")
+        BLACK     = rl_colors.HexColor("#0F172A")
+        WHITE     = rl_colors.white
 
         results = list(self.get_queryset())
-        total = len(results)
+        total        = len(results)
         passed_count = sum(1 for r in results if r.passed)
-        pass_rate = round(passed_count / total * 100) if total else 0
-        avg_score = round(sum(r.score_percent for r in results) / total) if total else 0
+        pass_rate    = round(passed_count / total * 100) if total else 0
+        avg_score    = round(sum(r.score_percent for r in results) / total) if total else 0
         distinctions = sum(1 for r in results if r.grade == "distinction")
 
         buf = io.BytesIO()
@@ -1179,23 +1187,48 @@ class ExamResultViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewse
             buf,
             pagesize=landscape(A4),
             leftMargin=1.2 * cm, rightMargin=1.2 * cm,
-            topMargin=1.2 * cm, bottomMargin=1.2 * cm,
+            topMargin=0.4 * cm, bottomMargin=1.0 * cm,
         )
         styles = getSampleStyleSheet()
-        HEADER_COLOR = rl_colors.HexColor("#1e3a5f")
-        GRADE_COLORS = {
-            "Distinction": rl_colors.HexColor("#d4edda"),
-            "Merit":       rl_colors.HexColor("#d1ecf1"),
-            "Pass":        rl_colors.HexColor("#fff3cd"),
-            "Did Not Pass": rl_colors.HexColor("#f8d7da"),
-        }
+        title_style = ParagraphStyle(
+            "ReportTitle", parent=styles["Title"],
+            textColor=BLACK, fontSize=16, spaceAfter=4, alignment=1,
+        )
 
-        elements = [
-            Paragraph("Exam Results Report", styles["Title"]),
-            Spacer(1, 0.4 * cm),
-        ]
+        elements = []
 
-        # Summary stats block
+        # ── Centred header: logo above title ─────────────────────────────────
+        logo_path = os.path.join(settings.BASE_DIR, "static", "marksheet", "logo.png")
+        if os.path.exists(logo_path):
+            from PIL import Image as PILImage
+            img = PILImage.open(logo_path).convert("RGBA")
+            r_ch, g_ch, b_ch, a_ch = img.split()
+            tinted = PILImage.merge("RGBA", (
+                r_ch.point(lambda _: 26),
+                g_ch.point(lambda _: 77),
+                b_ch.point(lambda _: 88),
+                a_ch,
+            ))
+            logo_buf = io.BytesIO()
+            tinted.save(logo_buf, format="PNG")
+            logo_buf.seek(0)
+            logo_img = Image(logo_buf, width=3.5 * cm, height=2.5 * cm)
+        else:
+            logo_img = Spacer(3.5 * cm, 2.5 * cm)
+
+        header_data = [[logo_img], [Paragraph("Exam Results Report", title_style)]]
+        header_table = Table(header_data, colWidths=[27.3 * cm])
+        header_table.setStyle(TableStyle([
+            ("ALIGN",        (0, 0), (-1, -1), "CENTER"),
+            ("VALIGN",       (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING",  (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING",(0, 0), (-1, -1), 2),
+            ("TOPPADDING",   (0, 0), (-1, -1), 2),
+        ]))
+        elements += [header_table, Spacer(1, 0.2 * cm)]
+
+        # ── Summary stats ─────────────────────────────────────────────────────
         stats_table = Table(
             [
                 ["Total Attempts", "Pass Rate", "Average Score", "Distinctions"],
@@ -1204,27 +1237,29 @@ class ExamResultViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewse
             colWidths=[5 * cm] * 4,
         )
         stats_table.setStyle(TableStyle([
-            ("BACKGROUND",   (0, 0), (-1, 0), HEADER_COLOR),
-            ("TEXTCOLOR",    (0, 0), (-1, 0), rl_colors.white),
-            ("FONTNAME",     (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("FONTSIZE",     (0, 0), (-1, -1), 10),
-            ("ALIGN",        (0, 0), (-1, -1), "CENTER"),
-            ("VALIGN",       (0, 0), (-1, -1), "MIDDLE"),
-            ("BACKGROUND",   (0, 1), (-1, 1), rl_colors.HexColor("#f0f4f8")),
-            ("GRID",         (0, 0), (-1, -1), 0.5, rl_colors.grey),
-            ("TOPPADDING",   (0, 0), (-1, -1), 6),
-            ("BOTTOMPADDING",(0, 0), (-1, -1), 6),
+            ("BACKGROUND",    (0, 0), (-1, 0), BLUE),
+            ("TEXTCOLOR",     (0, 0), (-1, 0), WHITE),
+            ("FONTNAME",      (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE",      (0, 0), (-1, -1), 10),
+            ("ALIGN",         (0, 0), (-1, -1), "CENTER"),
+            ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
+            ("TEXTCOLOR",     (0, 1), (-1, 1), BLACK),
+            ("FONTNAME",      (0, 1), (-1, 1), "Helvetica-Bold"),
+            ("BACKGROUND",    (0, 1), (-1, 1), WHITE),
+            ("BOX",           (0, 0), (-1, -1), 0.8, BLUE),
+            ("INNERGRID",     (0, 0), (-1, -1), 0.5, BLUE),
+            ("INNERGRID",     (0, 0), (-1, 0),  0.5, WHITE),  # white borders on header row
+            ("TOPPADDING",    (0, 0), (-1, -1), 6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
         ]))
-        elements.append(stats_table)
-        elements.append(Spacer(1, 0.5 * cm))
+        elements += [stats_table, Spacer(1, 0.5 * cm)]
 
-        # Results table
+        # ── Results table ─────────────────────────────────────────────────────
         col_headers = [
             "#", "Learner Name", "ULN", "Qualification", "Exam",
             "Date", "Score %", "Grade", "Passed",
             "Time\n(min)", "Violations", "Attempt",
         ]
-        # landscape A4 usable width ≈ 27.7 cm
         col_widths = [
             0.7*cm, 3.8*cm, 2.2*cm, 4.2*cm, 3.8*cm,
             2.2*cm, 1.7*cm, 2.4*cm, 1.5*cm,
@@ -1232,24 +1267,23 @@ class ExamResultViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewse
         ]
         rows = [col_headers] + [self._row(i, r) for i, r in enumerate(results, 1)]
         table = Table(rows, colWidths=col_widths, repeatRows=1)
-
-        ts = [
-            ("BACKGROUND",    (0, 0), (-1, 0), HEADER_COLOR),
-            ("TEXTCOLOR",     (0, 0), (-1, 0), rl_colors.white),
+        table.setStyle(TableStyle([
+            # Header row
+            ("BACKGROUND",    (0, 0), (-1, 0), BLUE),
+            ("TEXTCOLOR",     (0, 0), (-1, 0), WHITE),
             ("FONTNAME",      (0, 0), (-1, 0), "Helvetica-Bold"),
+            # Data rows — white background, black text
+            ("BACKGROUND",    (0, 1), (-1, -1), WHITE),
+            ("TEXTCOLOR",     (0, 1), (-1, -1), BLACK),
             ("FONTSIZE",      (0, 0), (-1, -1), 7.5),
             ("ALIGN",         (0, 0), (-1, -1), "CENTER"),
             ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
-            ("GRID",          (0, 0), (-1, -1), 0.3, rl_colors.HexColor("#cccccc")),
+            ("BOX",           (0, 0), (-1, -1), 0.8, BLUE),
+            ("INNERGRID",     (0, 0), (-1, -1), 0.4, BLUE),
+            ("INNERGRID",     (0, 0), (-1, 0),  0.4, WHITE),  # white borders on header row
             ("TOPPADDING",    (0, 0), (-1, -1), 4),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-            ("ROWBACKGROUNDS",(0, 1), (-1, -1), [rl_colors.white, rl_colors.HexColor("#f9f9f9")]),
-        ]
-        for i, r in enumerate(results, 1):
-            bg = GRADE_COLORS.get(r.grade.replace("_", " ").title())
-            if bg:
-                ts.append(("BACKGROUND", (0, i), (-1, i), bg))
-        table.setStyle(TableStyle(ts))
+        ]))
         elements.append(table)
 
         doc.build(elements)
