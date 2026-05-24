@@ -82,7 +82,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 
 LANGUAGE_CODE = 'en-us'
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'Europe/London'
 USE_I18N = True
 USE_TZ = True
 
@@ -252,6 +252,10 @@ SPECTACULAR_SETTINGS = {
             "name": "Exam Retake",
             "description": "Retake request and resit-session endpoints.",
         },
+        {
+            "name": "Scenario",
+            "description": "Scenario passage management — create, edit, and link scenarios to questions for scenario-based exam sections.",
+        },
     ],
 }
 
@@ -309,8 +313,8 @@ DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'noreply@examapi.leade
 
 TTS_PIPER_BINARY  = os.environ.get("TTS_PIPER_BINARY",  "/usr/local/bin/piper")
 TTS_PIPER_TIMEOUT = int(os.environ.get("TTS_PIPER_TIMEOUT", "30"))  # seconds
-TTS_MAX_TEXT_LENGTH = 1500       # characters; matches frontend Read Aloud limit
-TTS_CACHE_TIMEOUT   = 3600       # seconds (1 hour); cached WAV is reused per (voice+text)
+TTS_MAX_TEXT_LENGTH = 1500      
+TTS_CACHE_TIMEOUT   = 3600  
 
 # Preferred UK female voice. Assumption: en_GB-jenny_dioco-medium is the
 # closest freely available Piper voice to a southern English female accent.

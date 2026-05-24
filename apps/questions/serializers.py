@@ -15,7 +15,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from drf_spectacular.utils import OpenApiExample, extend_schema_serializer
 from rest_framework import serializers
 
-from .models import Question
+from .models import Question, Scenario
 
 
 @extend_schema_serializer(
@@ -52,6 +52,8 @@ class QuestionSerializer(serializers.ModelSerializer):
             "explanation",
             "tags",
             "image_qs",
+            "scenario",               # UUID of linked Scenario; null for standalone
+            "scenario_order",         # position within the scenario group
             "is_active",
             "created_at",
             "created_by",
@@ -60,6 +62,8 @@ class QuestionSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             "qualification": {"required": True},
             "image_qs": {"required": False, "allow_null": True},
+            "scenario": {"required": False, "allow_null": True},
+            "scenario_order": {"required": False, "allow_null": True},
         }
 
     def validate(self, attrs):
@@ -86,6 +90,41 @@ class QuestionSerializer(serializers.ModelSerializer):
         except DjangoValidationError as e:
             raise serializers.ValidationError(e.message_dict)
         return attrs
+
+    def create(self, validated_data):
+        request = self.context.get("request")
+        if request and request.user and request.user.is_authenticated:
+            validated_data["created_by"] = request.user
+        return super().create(validated_data)
+
+
+class ScenarioSerializer(serializers.ModelSerializer):
+    qualification_title = serializers.CharField(source="qualification.title", read_only=True)
+    question_count = serializers.IntegerField(source="active_question_count", read_only=True)
+    image_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Scenario
+        fields = [
+            "id", "title", "body",
+            "qualification", "qualification_title",
+            "image", "image_url",
+            "status", "question_count",
+            "created_at", "updated_at",
+        ]
+        read_only_fields = ["id", "question_count", "image_url", "qualification_title", "created_at", "updated_at"]
+        extra_kwargs = {
+            "qualification": {"required": True},
+            "image": {"required": False, "allow_null": True},
+        }
+
+    def get_image_url(self, obj) -> str | None:
+        if not obj.image:
+            return None
+        request = self.context.get("request")
+        if request:
+            return request.build_absolute_uri(obj.image.url)
+        return obj.image.url
 
     def create(self, validated_data):
         request = self.context.get("request")

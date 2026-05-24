@@ -14,11 +14,53 @@ Key invariants:
 - question_type = 'single' | 'multiple' (mirrors UI QuestionType).
 - is_active=False is a soft-delete; the bank-health counter excludes inactives.
 - Tags are free-text labels stored as JSONField list[str].
+- A Scenario belongs to ONE Qualification and groups related questions.
+  Questions with scenario=None are standalone (no change to existing behaviour).
 """
 
 import uuid
 from django.conf import settings
 from django.db import models
+
+
+# ---------------------------------------------------------------------------
+# Scenario  (context passage for grouped questions)
+# ---------------------------------------------------------------------------
+class Scenario(models.Model):
+    STATUS_CHOICES = [("active", "Active"), ("draft", "Draft")]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    qualification = models.ForeignKey(
+        "qualifications.Qualification",
+        on_delete=models.CASCADE,
+        related_name="scenarios",
+    )
+    title = models.CharField(max_length=255)
+    body = models.TextField()
+    image = models.ImageField(upload_to="scenario_images/", blank=True, null=True)
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default="active")
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_scenarios",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["qualification", "status"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.qualification_id} – {self.title}"
+
+    @property
+    def active_question_count(self) -> int:
+        return self.questions.filter(is_active=True).count()
 
 
 class Question(models.Model):
@@ -43,6 +85,16 @@ class Question(models.Model):
     tags = models.JSONField(default=list, blank=True)
     image_qs = models.ImageField(upload_to="questions_images/", blank=True, null=True)
 
+    # Scenario grouping — null means standalone question (no behaviour change)
+    scenario = models.ForeignKey(
+        Scenario,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="questions",
+    )
+    scenario_order = models.PositiveIntegerField(null=True, blank=True)
+
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -58,6 +110,7 @@ class Question(models.Model):
         ordering = ["-created_at"]
         indexes = [
             models.Index(fields=["qualification", "is_active"]),
+            models.Index(fields=["scenario", "scenario_order"]),
         ]
 
     def __str__(self) -> str:

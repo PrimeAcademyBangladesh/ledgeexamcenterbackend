@@ -13,8 +13,8 @@ from django.db import transaction
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
-from apps.questions.models import Question
-from .models import ExamConfig, ExamResult, ExamSession, LearnerSeenQuestion
+from apps.questions.models import Question, Scenario
+from .models import ExamConfig, ExamResult, ExamSession, LearnerSeenQuestion, LearnerSeenScenario
 
 
 # ---------------------------------------------------------------------------
@@ -22,46 +22,141 @@ from .models import ExamConfig, ExamResult, ExamSession, LearnerSeenQuestion
 # ---------------------------------------------------------------------------
 def select_questions_for_learner(*, exam_config: ExamConfig, learner, mark_seen_session=None):
     """
-    Returns a list of Question objects of size exam_config.questions_per_exam,
-    excluding any question already in LearnerSeenQuestion for this learner.
+    Returns (questions, scenario_snapshot) where:
+      - questions        is an ordered list of Question objects
+      - scenario_snapshot is a dict {str(scenario_id): {title, body, imageUrl}}
 
-    If `mark_seen_session` is provided, also creates LearnerSeenQuestion rows
-    inside the same transaction. Pass None for mock/practice exams.
+    Scenario-aware logic (when exam_config.scenario_rules is non-empty):
+      1. For each rule {"count": N, "questions_per_scenario": K}:
+         - Pick N unseen eligible scenarios (must have >= K active questions).
+         - Take exactly K questions per scenario in scenario_order.
+         - Groups themselves are shuffled if shuffle_questions=True.
+      2. Fill remaining slots with standalone questions (scenario=None).
+
+    If mark_seen_session is provided, LearnerSeenQuestion and
+    LearnerSeenScenario rows are written inside the same transaction.
+    Pass None for mock/practice exams.
     """
     if mark_seen_session is not None:
         if not transaction.get_connection().in_atomic_block:
             raise RuntimeError("Persisted question selection must run inside transaction.atomic().")
-        # Serialize per-learner paper allocation so two scheduled/live sessions
-        # cannot read the same unseen pool before either writes LearnerSeenQuestion.
         learner = learner.__class__.objects.select_for_update().get(pk=learner.pk)
 
     qualification = exam_config.qualification
     required_count = exam_config.questions_per_exam
+    scenario_rules = exam_config.scenario_rules or []
 
+    # ── Seen sets ────────────────────────────────────────────────────────────
     seen_qids = set(
         LearnerSeenQuestion.objects.filter(
             learner=learner, qualification=qualification
         ).values_list("question_id", flat=True)
     )
-
-    pool = list(
-        Question.objects.filter(
-            qualification=qualification, is_active=True
-        ).exclude(id__in=seen_qids).values_list("id", flat=True)
+    seen_scenario_ids = set(
+        LearnerSeenScenario.objects.filter(learner=learner)
+        .values_list("scenario_id", flat=True)
     )
 
-    if len(pool) < required_count:
-        raise ValidationError(
-            "Not enough unseen questions available. Add more questions to "
-            "this qualification before creating this session."
+    scenario_groups = []      # list of list[Question], in final display order
+    scenario_snapshot = {}    # {str(uuid): {title, body, imageUrl}}
+    total_scenario_q_count = 0
+
+    # ── Phase 1: Scenario groups ─────────────────────────────────────────────
+    for rule in scenario_rules:
+        group_count = rule["count"]
+        q_per_scenario = rule["questions_per_scenario"]
+        total_scenario_q_count += group_count * q_per_scenario
+
+        # Eligible scenarios: active, unseen, belonging to this qualification,
+        # with enough active questions.
+        eligible_scenarios = [
+            s for s in Scenario.objects.filter(
+                qualification=qualification, status="active"
+            ).exclude(id__in=seen_scenario_ids)
+            if s.active_question_count >= q_per_scenario
+        ]
+
+        if len(eligible_scenarios) < group_count:
+            raise ValidationError(
+                f"Not enough unseen eligible scenarios available "
+                f"(need {group_count}, found {len(eligible_scenarios)}). "
+                f"Add more scenarios to this qualification before creating this session."
+            )
+
+        chosen_scenarios = random.sample(eligible_scenarios, group_count)
+
+        # Shuffle group order if configured
+        if exam_config.shuffle_questions:
+            random.shuffle(chosen_scenarios)
+
+        for scenario in chosen_scenarios:
+            # Take questions in scenario_order; exclude any already seen
+            qs = list(
+                Question.objects.filter(
+                    scenario=scenario, is_active=True
+                ).exclude(id__in=seen_qids)
+                .order_by("scenario_order")[:q_per_scenario]
+            )
+            if len(qs) < q_per_scenario:
+                raise ValidationError(
+                    f"Scenario '{scenario.title}' does not have enough unseen questions "
+                    f"(need {q_per_scenario}, found {len(qs)})."
+                )
+            scenario_groups.append(qs)
+            seen_scenario_ids.add(scenario.id)
+
+            # Build snapshot entry (image path only — no request context here;
+            # the view layer converts to absolute URL when serialising)
+            snapshot_entry = {
+                "title": scenario.title,
+                "body": scenario.body,
+                "imagePath": scenario.image.name if scenario.image else None,
+            }
+            scenario_snapshot[str(scenario.id)] = snapshot_entry
+
+            # Update running seen set so we don't accidentally re-pick
+            for q in qs:
+                seen_qids.add(q.id)
+
+    # ── Phase 2: Standalone questions ────────────────────────────────────────
+    standalone_needed = required_count - total_scenario_q_count
+    chosen_standalone = []
+
+    if standalone_needed > 0:
+        standalone_pool = list(
+            Question.objects.filter(
+                qualification=qualification,
+                is_active=True,
+                scenario__isnull=True,
+            ).exclude(id__in=seen_qids).values_list("id", flat=True)
         )
 
-    chosen_ids = random.sample(pool, required_count)
-    chosen = list(Question.objects.filter(id__in=chosen_ids))
-    # Preserve the random order chosen (filter() does not guarantee it)
-    order_index = {qid: i for i, qid in enumerate(chosen_ids)}
-    chosen.sort(key=lambda q: order_index[q.id])
+        if len(standalone_pool) < standalone_needed:
+            raise ValidationError(
+                f"Not enough unseen standalone questions available "
+                f"(need {standalone_needed}, found {len(standalone_pool)}). "
+                f"Add more questions to this qualification before creating this session."
+            )
 
+        standalone_ids = random.sample(standalone_pool, standalone_needed)
+        chosen_standalone = list(Question.objects.filter(id__in=standalone_ids))
+        # Restore random order (filter() does not guarantee it)
+        order_index = {qid: i for i, qid in enumerate(standalone_ids)}
+        chosen_standalone.sort(key=lambda q: order_index[q.id])
+
+    # ── Phase 3: Assemble final ordered list ─────────────────────────────────
+    # Scenario groups come first (already shuffled above if configured),
+    # then standalone questions.
+    all_questions = []
+    for group in scenario_groups:
+        all_questions.extend(group)
+    all_questions.extend(chosen_standalone)
+
+    assert len(all_questions) == required_count, (
+        f"Question count mismatch: assembled {len(all_questions)}, expected {required_count}"
+    )
+
+    # ── Phase 4: Persist seen records ────────────────────────────────────────
     if mark_seen_session is not None:
         LearnerSeenQuestion.objects.bulk_create(
             [
@@ -71,12 +166,28 @@ def select_questions_for_learner(*, exam_config: ExamConfig, learner, mark_seen_
                     question=q,
                     session=mark_seen_session,
                 )
-                for q in chosen
+                for q in all_questions
             ],
             ignore_conflicts=True,
         )
 
-    return chosen
+        # Record each scenario as seen
+        scenario_ids_to_mark = list(scenario_snapshot.keys())
+        if scenario_ids_to_mark:
+            scenario_objs = Scenario.objects.filter(id__in=scenario_ids_to_mark)
+            LearnerSeenScenario.objects.bulk_create(
+                [
+                    LearnerSeenScenario(
+                        learner=learner,
+                        scenario=s,
+                        session=mark_seen_session,
+                    )
+                    for s in scenario_objs
+                ],
+                ignore_conflicts=True,
+            )
+
+    return all_questions, scenario_snapshot
 
 
 # ---------------------------------------------------------------------------
@@ -143,13 +254,13 @@ def create_scheduled_session(
         status="scheduled",
     )
 
-    chosen = select_questions_for_learner(
+    chosen, scenario_snapshot = select_questions_for_learner(
         exam_config=exam_config, learner=learner, mark_seen_session=session
     )
     session.question_set = [str(q.id) for q in chosen]
-    session.save(update_fields=["question_set"])
+    session.scenario_snapshot = scenario_snapshot
+    session.save(update_fields=["question_set", "scenario_snapshot"])
 
-    # Hard assertions — fail loud if invariants break
     assert len(session.question_set) == exam_config.questions_per_exam
     return session
 

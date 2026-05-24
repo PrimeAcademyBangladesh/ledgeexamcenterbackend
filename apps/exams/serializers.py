@@ -6,12 +6,23 @@ either by djangorestframework-camel-case OR by the React Axios interceptor.
 Do not enable both at the same time.
 """
 
+import calendar as _cal
+
 from drf_spectacular.utils import extend_schema_field, inline_serializer
 from rest_framework import serializers
 from django.utils import timezone
 
+
+def _add_months(dt, months):
+    """Return dt shifted forward by `months` calendar months."""
+    m = dt.month - 1 + months
+    year = dt.year + m // 12
+    month = m % 12 + 1
+    day = min(dt.day, _cal.monthrange(year, month)[1])
+    return dt.replace(year=year, month=month, day=day)
+
 from apps.qualifications.models import Qualification
-from apps.questions.models import Question
+from apps.questions.models import Question, Scenario
 from .models import (
     ExamConfig, ExamSession, ExamResult,
     IntegrityViolation, RetakeRequest,
@@ -64,10 +75,26 @@ class ExamConfigSerializer(serializers.ModelSerializer):
             "qualification_id", "qualification_title",
             "exam_type", "questions_per_exam", "time_limit_minutes",
             "shuffle_questions", "shuffle_options", "strict_mode",
-            "grade_boundaries", "status",
-            "created_at", "updated_at",
+            "grade_boundaries", "scenario_rules",
+            "cert_validity_months",
+            "status", "created_at", "updated_at",
         ]
         read_only_fields = ["id", "created_at", "updated_at", "qualification_title"]
+        extra_kwargs = {
+            "cert_validity_months": {"required": False, "allow_null": True},
+        }
+
+    def validate_scenario_rules(self, value):
+        if not isinstance(value, list):
+            raise serializers.ValidationError("scenario_rules must be a list.")
+        for rule in value:
+            if not isinstance(rule, dict):
+                raise serializers.ValidationError("Each rule must be an object.")
+            if not isinstance(rule.get("count"), int) or rule["count"] < 1:
+                raise serializers.ValidationError("Each rule must have count >= 1.")
+            if not isinstance(rule.get("questions_per_scenario"), int) or rule["questions_per_scenario"] < 1:
+                raise serializers.ValidationError("Each rule must have questions_per_scenario >= 1.")
+        return value
 
     def validate(self, attrs):
         gb = attrs.pop("grade_boundaries", None) if "grade_boundaries" in attrs else None
@@ -76,6 +103,15 @@ class ExamConfigSerializer(serializers.ModelSerializer):
         if attrs.get("grade_pass") is not None and attrs.get("grade_merit") is not None and attrs.get("grade_distinction") is not None:
             if not (attrs["grade_pass"] < attrs["grade_merit"] < attrs["grade_distinction"]):
                 raise serializers.ValidationError("Pass < Merit < Distinction is required")
+        # Validate scenario_rules total does not exceed questions_per_exam
+        scenario_rules = attrs.get("scenario_rules") or []
+        questions_per_exam = attrs.get("questions_per_exam")
+        if scenario_rules and questions_per_exam is not None:
+            scenario_total = sum(r["count"] * r["questions_per_scenario"] for r in scenario_rules)
+            if scenario_total > questions_per_exam:
+                raise serializers.ValidationError(
+                    f"Scenario rules total ({scenario_total}) exceeds questions_per_exam ({questions_per_exam})."
+                )
         return attrs
 
 
@@ -98,12 +134,58 @@ class ExamConfigDropdownSerializer(serializers.ModelSerializer):
 
 
 # ---------------------------------------------------------------------------
+# Scenario (admin-facing)
+# ---------------------------------------------------------------------------
+class ScenarioSerializer(serializers.ModelSerializer):
+    qualification_id = serializers.PrimaryKeyRelatedField(
+        queryset=Qualification.objects.all(),
+        source="qualification",
+    )
+    qualification_title = serializers.CharField(source="qualification.title", read_only=True)
+    question_count = serializers.IntegerField(source="active_question_count", read_only=True)
+    image_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Scenario
+        fields = [
+            "id", "title", "body",
+            "qualification_id", "qualification_title",
+            "image", "image_url",
+            "status", "question_count",
+            "created_at", "updated_at",
+        ]
+        read_only_fields = ["id", "question_count", "image_url", "created_at", "updated_at", "qualification_title"]
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_image_url(self, obj) -> str | None:
+        if not obj.image:
+            return None
+        request = self.context.get("request")
+        if request:
+            return request.build_absolute_uri(obj.image.url)
+        return obj.image.url
+
+
+# ---------------------------------------------------------------------------
 # ExamQuestion (learner-safe — NO correct_answers, NO explanation)
 # ---------------------------------------------------------------------------
 class ExamQuestionSerializer(serializers.ModelSerializer):
+    questionText = serializers.CharField(source="question_text", read_only=True)
+    questionType = serializers.CharField(source="question_type", read_only=True)
+    imageUrl = serializers.SerializerMethodField()
+    scenarioId = serializers.UUIDField(source="scenario_id", read_only=True, allow_null=True)
+
     class Meta:
         model = Question
-        fields = ["id", "question_text", "question_type", "options", "image_qs"]
+        fields = ["id", "questionText", "questionType", "options", "imageUrl", "scenarioId"]
+
+    def get_imageUrl(self, obj):
+        if not obj.image_qs:
+            return None
+        request = self.context.get("request")
+        if request:
+            return request.build_absolute_uri(obj.image_qs.url)
+        return obj.image_qs.url
 
 
 # ---------------------------------------------------------------------------
@@ -254,6 +336,8 @@ class ExamResultSerializer(serializers.ModelSerializer):
     uln = serializers.CharField(source="learner.uln", read_only=True)
     violations = IntegrityViolationSerializer(source="session.violations", many=True, read_only=True)
     exam_date = serializers.DateField(read_only=True)
+    cert_validity_months = serializers.IntegerField(source="exam_config.cert_validity_months", read_only=True, allow_null=True)
+    cert_expiry = serializers.SerializerMethodField()
 
     class Meta:
         model = ExamResult
@@ -271,11 +355,23 @@ class ExamResultSerializer(serializers.ModelSerializer):
             "invigilator_name",
             "exam_date", "submitted_at",
             "attempt_number",
+            "cert_validity_months", "cert_expiry",
         ]
 
     @extend_schema_field(serializers.CharField())
     def get_learner_name(self, obj) -> str:
         return f"{obj.learner.first_name} {obj.learner.last_name}".strip()
+
+    @extend_schema_field(serializers.DateField(allow_null=True))
+    def get_cert_expiry(self, obj) -> str | None:
+        """ISO date the certification expires, or null (no expiry / not configured)."""
+        if not obj.passed:
+            return None
+        months = obj.exam_config.cert_validity_months
+        if months is None or months == 0:
+            return None
+        expiry = _add_months(obj.submitted_at, months)
+        return expiry.date().isoformat()
 
 
 # ---------------------------------------------------------------------------

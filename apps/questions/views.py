@@ -25,9 +25,9 @@ from rest_framework.response import Response
 from core.responses import APIResponse
 from core.schemas import DEFAULT_ERROR_RESPONSES, envelope_detail
 
-from .models import Question
+from .models import Question, Scenario
 from .permissions import IsAdminOrStaffReadOnly
-from .serializers import QuestionSerializer
+from .serializers import QuestionSerializer, ScenarioSerializer
 
 
 QUESTION_QUALIFICATION_PARAM = OpenApiParameter(
@@ -168,4 +168,75 @@ class QuestionViewSet(viewsets.ModelViewSet):
         obj = self.get_object()
         obj.is_active = False
         obj.save(update_fields=["is_active", "updated_at"])
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+@extend_schema_view(
+    list=extend_schema(
+        tags=["Scenario"],
+        summary="List scenarios",
+        parameters=[
+            OpenApiParameter(
+                name="qualification_id", type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY, required=False,
+                description="Filter by qualification UUID.",
+            ),
+            OpenApiParameter(
+                name="status", type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY, required=False,
+                description="Filter by status: active | draft.",
+            ),
+        ],
+    ),
+    retrieve=extend_schema(tags=["Scenario"], summary="Retrieve a scenario"),
+    create=extend_schema(
+        tags=["Scenario"], summary="Create a scenario",
+        request={"multipart/form-data": ScenarioSerializer, "application/json": ScenarioSerializer},
+    ),
+    update=extend_schema(
+        tags=["Scenario"], summary="Replace a scenario",
+        request={"multipart/form-data": ScenarioSerializer, "application/json": ScenarioSerializer},
+    ),
+    partial_update=extend_schema(
+        tags=["Scenario"], summary="Partially update a scenario",
+        request={"multipart/form-data": ScenarioSerializer, "application/json": ScenarioSerializer},
+    ),
+    destroy=extend_schema(
+        tags=["Scenario"], summary="Soft-delete a scenario",
+        description="Sets status=draft. Linked questions are unaffected.",
+    ),
+)
+class ScenarioViewSet(viewsets.ModelViewSet):
+    """
+    Admin CRUD for scenario passages.
+
+    Scenarios belong to a qualification and group related questions.
+    A scenario with status=draft is excluded from exam session building.
+    Deleting (soft) sets status=draft; linked Question.scenario FKs are
+    preserved so existing session snapshots remain valid.
+    """
+    queryset = Scenario.objects.select_related("qualification").all()
+    serializer_class = ScenarioSerializer
+    parser_classes = [JSONParser, FormParser, MultiPartParser]
+    permission_classes = [IsAdminOrStaffReadOnly]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ["title", "body"]
+    ordering_fields = ["created_at", "updated_at", "title"]
+    ordering = ["-created_at"]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        qualification_id = self.request.query_params.get("qualification_id")
+        if qualification_id:
+            qs = qs.filter(qualification_id=qualification_id)
+        status_filter = self.request.query_params.get("status")
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+        return qs
+
+    def destroy(self, request, *args, **kwargs):
+        """Soft-delete: sets status=draft so it is excluded from new sessions."""
+        obj = self.get_object()
+        obj.status = "draft"
+        obj.save(update_fields=["status", "updated_at"])
         return Response(status=status.HTTP_204_NO_CONTENT)

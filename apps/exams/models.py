@@ -48,9 +48,25 @@ class ExamConfig(models.Model):
     shuffle_options = models.BooleanField(default=True)
     strict_mode = models.BooleanField(default=True)
 
+    # Scenario configuration — list of group rules.
+    # Each entry: {"count": int, "questions_per_scenario": int}
+    # Empty list (default) means no scenarios — all questions are standalone.
+    # Example: [{"count": 4, "questions_per_scenario": 10}] = 4 groups × 10 = 40 questions.
+    scenario_rules = models.JSONField(default=list, blank=True)
+
     grade_distinction = models.PositiveSmallIntegerField(default=85)
     grade_merit = models.PositiveSmallIntegerField(default=70)
     grade_pass = models.PositiveSmallIntegerField(default=60)
+
+    # Certification validity — how long a pass is valid after the exam date.
+    # null = not configured (no cert expiry shown).
+    # 0    = no expiry (permanent certification).
+    # 12   = 1 year, 24 = 2 years, 36 = 3 years, etc.
+    cert_validity_months = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        help_text="Certificate validity in months. 0 = no expiry. Null = not set.",
+    )
 
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default="draft")
     created_at = models.DateTimeField(auto_now_add=True)
@@ -114,6 +130,11 @@ class ExamSession(models.Model):
     # Stored as ordered list of Question UUIDs (strings). Order is preserved
     # through to the learner UI; only shuffling on first delivery is allowed.
     question_set = models.JSONField(default=list, blank=True)
+
+    # Frozen scenario content keyed by scenario UUID (str).
+    # Built at session creation from the live Scenario rows; immutable after that.
+    # Shape: {"<uuid>": {"title": str, "body": str, "imageUrl": str|null}}
+    scenario_snapshot = models.JSONField(default=dict, blank=True)
 
     status = models.CharField(max_length=15, choices=STATUS_CHOICES, default="scheduled")
 
@@ -195,6 +216,41 @@ class LearnerSeenQuestion(models.Model):
         ]
         indexes = [
             models.Index(fields=["learner", "qualification"]),
+        ]
+
+
+# ---------------------------------------------------------------------------
+# LearnerSeenScenario  (prevents same scenario being served twice)
+# ---------------------------------------------------------------------------
+class LearnerSeenScenario(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    learner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="seen_scenarios",
+        limit_choices_to={"role": "learner"},
+    )
+    scenario = models.ForeignKey(
+        "questions.Scenario",
+        on_delete=models.CASCADE,
+        related_name="seen_records",
+    )
+    session = models.ForeignKey(
+        ExamSession,
+        on_delete=models.CASCADE,
+        related_name="seen_scenario_records",
+    )
+    seen_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["learner", "scenario"],
+                name="unique_seen_scenario_per_learner",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["learner"]),
         ]
 
 

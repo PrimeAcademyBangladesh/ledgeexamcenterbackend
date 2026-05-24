@@ -313,14 +313,14 @@ class MockExamStartView(APIView):
             ExamConfig.objects.select_related("qualification"),
             id=exam_id, exam_type="mock", status="published",
         )
-        # Mock exams DO NOT mark seen
-        chosen = select_questions_for_learner(
+        # Mock exams DO NOT mark seen; no scenarios are snapshotted
+        chosen, _ = select_questions_for_learner(
             exam_config=cfg, learner=request.user, mark_seen_session=None
         )
         return APIResponse.ok(
             data={
                 "valid": True,
-                "examQuestions": ExamQuestionSerializer(chosen, many=True).data,
+                "examQuestions": ExamQuestionSerializer(chosen, many=True, context={"request": request}).data,
                 "timeLimitMinutes": cfg.time_limit_minutes,
                 "examTitle": cfg.title,
                 "qualificationTitle": cfg.qualification.title,
@@ -669,14 +669,15 @@ class ExamSessionViewSet(viewsets.ModelViewSet):
             # Regenerate question set when the exam config changes
             if str(v["exam_config_id"]) != str(session.exam_config_id):
                 learner = User.objects.get(pk=session.learner_id)
-                chosen = select_questions_for_learner(
+                chosen, scenario_snapshot = select_questions_for_learner(
                     exam_config=new_cfg,
                     learner=learner,
                     mark_seen_session=session,
                 )
                 session.exam_config = new_cfg
                 session.question_set = [str(q.id) for q in chosen]
-                update_fields.extend(["exam_config", "question_set"])
+                session.scenario_snapshot = scenario_snapshot
+                update_fields.extend(["exam_config", "question_set", "scenario_snapshot"])
 
             session.invigilator = new_invigilator
             session.scheduled_date = v["scheduled_date"]
@@ -882,6 +883,13 @@ class ValidatePinView(APIView):
                     status=400
                 )
 
+            if not session.id_verified:
+                return APIResponse.fail(
+                    message="Your identity has not yet been verified by your invigilator. Please inform your invigilator and ask them to verify your ID before you can begin the exam.",
+                    errors={"id_verified": ["ID verification required"]},
+                    status=403
+                )
+
             now = timezone.now()
             if session.pin_window_start and session.pin_window_end:
                 if now < session.pin_window_start or now > session.pin_window_end:
@@ -925,10 +933,27 @@ class ValidatePinView(APIView):
                     "updatedAt": session.draft_updated_at.isoformat(),
                 }
 
+        # Build scenarios dict: resolve image paths to absolute URLs
+        scenarios = {}
+        for sid, snap in (session.scenario_snapshot or {}).items():
+            image_url = None
+            if snap.get("imagePath"):
+                from django.conf import settings as django_settings
+                from urllib.parse import urljoin
+                image_url = request.build_absolute_uri(
+                    urljoin(django_settings.MEDIA_URL, snap["imagePath"])
+                )
+            scenarios[sid] = {
+                "title": snap["title"],
+                "body": snap["body"],
+                "imageUrl": image_url,
+            }
+
         return APIResponse.ok(
             data={
                 "valid": True,
-                "examQuestions": ExamQuestionSerializer(ordered, many=True).data,
+                "examQuestions": ExamQuestionSerializer(ordered, many=True, context={"request": request}).data,
+                "scenarios": scenarios,
                 "timeLimitMinutes": session.exam_config.time_limit_minutes
                                     + (session.extra_time_minutes or 0),
                 "examTitle": session.exam_config.title,
