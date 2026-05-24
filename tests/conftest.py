@@ -202,6 +202,7 @@ def session(db, exam_config, learner_user, invigilator_user, enrollment, questio
         pin="123456",
         pin_active=True,
         status="scheduled",
+        id_verified=True,
         question_set=[str(q.id) for q in questions[:5]],
     )
     LearnerSeenQuestion.objects.bulk_create(
