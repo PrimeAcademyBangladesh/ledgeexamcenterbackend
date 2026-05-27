@@ -26,12 +26,21 @@ def select_questions_for_learner(*, exam_config: ExamConfig, learner, mark_seen_
       - questions        is an ordered list of Question objects
       - scenario_snapshot is a dict {str(scenario_id): {title, body, imageUrl}}
 
-    Scenario-aware logic (when exam_config.scenario_rules is non-empty):
-      1. For each rule {"count": N, "questions_per_scenario": K}:
-         - Pick N unseen eligible scenarios (must have >= K active questions).
-         - Take exactly K questions per scenario in scenario_order.
-         - Groups themselves are shuffled if shuffle_questions=True.
-      2. Fill remaining slots with standalone questions (scenario=None).
+    Two selection modes:
+
+    A. Rule-driven (exam_config.scenario_rules is non-empty):
+       1. For each rule {"count": N, "questions_per_scenario": K}:
+          - Pick N unseen eligible scenarios (must have >= K active questions).
+          - Take exactly K questions per scenario in scenario_order.
+          - Groups themselves are shuffled if shuffle_questions=True.
+       2. Fill remaining slots with standalone questions (scenario=None).
+
+    B. Auto mode (exam_config.scenario_rules is empty):
+       Pool BOTH active unseen scenario-based questions and standalone
+       questions for this qualification, then sample questions_per_exam
+       from the combined pool. Scenarios that contribute chosen questions
+       are recorded in scenario_snapshot and marked as seen. Scenarios
+       already seen by the learner are excluded.
 
     If mark_seen_session is provided, LearnerSeenQuestion and
     LearnerSeenScenario rows are written inside the same transaction.
@@ -118,11 +127,12 @@ def select_questions_for_learner(*, exam_config: ExamConfig, learner, mark_seen_
             for q in qs:
                 seen_qids.add(q.id)
 
-    # ── Phase 2: Standalone questions ────────────────────────────────────────
-    standalone_needed = required_count - total_scenario_q_count
-    chosen_standalone = []
+    # ── Phase 2: Fill remaining slots ────────────────────────────────────────
+    remaining_needed = required_count - total_scenario_q_count
+    chosen_remaining = []
 
-    if standalone_needed > 0:
+    if remaining_needed > 0 and scenario_rules:
+        # Rule-driven mode: remaining slots are standalone questions only
         standalone_pool = list(
             Question.objects.filter(
                 qualification=qualification,
@@ -131,26 +141,73 @@ def select_questions_for_learner(*, exam_config: ExamConfig, learner, mark_seen_
             ).exclude(id__in=seen_qids).values_list("id", flat=True)
         )
 
-        if len(standalone_pool) < standalone_needed:
+        if len(standalone_pool) < remaining_needed:
             raise ValidationError(
                 f"Not enough unseen standalone questions available "
-                f"(need {standalone_needed}, found {len(standalone_pool)}). "
+                f"(need {remaining_needed}, found {len(standalone_pool)}). "
                 f"Add more questions to this qualification before creating this session."
             )
 
-        standalone_ids = random.sample(standalone_pool, standalone_needed)
-        chosen_standalone = list(Question.objects.filter(id__in=standalone_ids))
+        standalone_ids = random.sample(standalone_pool, remaining_needed)
+        chosen_remaining = list(Question.objects.filter(id__in=standalone_ids))
         # Restore random order (filter() does not guarantee it)
         order_index = {qid: i for i, qid in enumerate(standalone_ids)}
-        chosen_standalone.sort(key=lambda q: order_index[q.id])
+        chosen_remaining.sort(key=lambda q: order_index[q.id])
+
+    elif remaining_needed > 0:
+        # Auto mode (scenario_rules empty): pool BOTH active unseen
+        # scenario-based questions and standalone questions together.
+        # Scenario context is still surfaced via scenario_snapshot for
+        # any chosen scenario question.
+        pool_qs = (
+            Question.objects.filter(
+                qualification=qualification, is_active=True
+            )
+            .exclude(id__in=seen_qids)
+            .select_related("scenario")
+        )
+        # Exclude scenario questions whose scenario is inactive or already seen
+        pool = [
+            q for q in pool_qs
+            if q.scenario_id is None or (
+                q.scenario is not None
+                and q.scenario.status == "active"
+                and q.scenario_id not in seen_scenario_ids
+            )
+        ]
+
+        scenario_avail = sum(1 for q in pool if q.scenario_id is not None)
+        standalone_avail = sum(1 for q in pool if q.scenario_id is None)
+
+        if len(pool) < remaining_needed:
+            raise ValidationError(
+                f"Not enough unseen questions available "
+                f"(need {remaining_needed}, found {len(pool)}: "
+                f"{scenario_avail} scenario-based + {standalone_avail} standalone). "
+                f"Add more questions to this qualification before creating this session."
+            )
+
+        chosen_remaining = random.sample(pool, remaining_needed)
+
+        if exam_config.shuffle_questions:
+            random.shuffle(chosen_remaining)
+
+        # Build scenario snapshot for any chosen scenario-based questions
+        for q in chosen_remaining:
+            if q.scenario_id and str(q.scenario_id) not in scenario_snapshot:
+                scenario_snapshot[str(q.scenario_id)] = {
+                    "title": q.scenario.title,
+                    "body": q.scenario.body,
+                    "imagePath": q.scenario.image.name if q.scenario.image else None,
+                }
 
     # ── Phase 3: Assemble final ordered list ─────────────────────────────────
     # Scenario groups come first (already shuffled above if configured),
-    # then standalone questions.
+    # then the remaining questions.
     all_questions = []
     for group in scenario_groups:
         all_questions.extend(group)
-    all_questions.extend(chosen_standalone)
+    all_questions.extend(chosen_remaining)
 
     assert len(all_questions) == required_count, (
         f"Question count mismatch: assembled {len(all_questions)}, expected {required_count}"

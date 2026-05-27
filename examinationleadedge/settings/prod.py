@@ -2,7 +2,7 @@ from .base import *
 
 DEBUG = False
 
-
+FRONTEND_URL = 'https://examination.leadedgeltd.org'
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '').split(',')
 
 DATABASES = {
