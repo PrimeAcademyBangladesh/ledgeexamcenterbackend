@@ -126,9 +126,25 @@ class ReportViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.G
             message="Reports retrieved successfully.",
         )
 
+def _get_marksheet_result(pk):
+    return get_object_or_404(
+        ExamResult.objects.select_related(
+            "learner", "learner__learner_profile",
+            "exam_config", "qualification", "session",
+        ),
+        pk=pk,
+    )
+
+
+def _marksheet_filename(result) -> str:
+    learner = result.learner
+    slug = f"{learner.first_name}-{learner.last_name}".lower().replace(" ", "-")
+    return f"marksheet-{slug}-{result.exam_date.isoformat()}.pdf"
+
+
 class MarksheetView(APIView):
     """
-    GET /reports/{id}/marksheet/  →  application/pdf
+    GET /reports/{id}/marksheet/  →  application/pdf (attachment)
 
     Triggered by the "Marksheet" action on each result row. The PDF mirrors
     the brand: teal header, gold accent rule, score + grade tile, signed-off
@@ -149,20 +165,11 @@ class MarksheetView(APIView):
         },
     )
     def get(self, request, pk):
-        result = get_object_or_404(
-            ExamResult.objects.select_related(
-                "learner", "learner__learner_profile",
-                "exam_config", "qualification", "session",
-            ),
-            pk=pk,
-        )
+        result = _get_marksheet_result(pk)
         pdf_bytes = render_marksheet(result)
-        learner = result.learner
-        slug = f"{learner.first_name}-{learner.last_name}".lower().replace(" ", "-")
-        filename = f"marksheet-{slug}-{result.exam_date.isoformat()}.pdf"
 
         response = HttpResponse(pdf_bytes, content_type="application/pdf")
-        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        response["Content-Disposition"] = f'attachment; filename="{_marksheet_filename(result)}"'
         return response
 
 

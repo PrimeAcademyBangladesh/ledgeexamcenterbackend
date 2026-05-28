@@ -55,8 +55,8 @@ class LevelSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Level
-        fields = ["id", "label"]
-        read_only_fields = fields
+        fields = ["id", "name", "label"]
+        read_only_fields = ["id", "label"]
 
 
 # ────────────────────────────────────────────────────────────
