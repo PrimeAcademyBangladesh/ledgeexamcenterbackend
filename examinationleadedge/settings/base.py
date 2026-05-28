@@ -9,6 +9,13 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 SECRET_KEY = os.environ['SECRET_KEY']
 
+ALLOWED_HOSTS = [
+    "devapi.leadedgeltd.org",
+    "examapi.leadedgeltd.org",
+    "fronttest.leadedgeltd.org",
+    "examination.leadedgeltd.org",
+]
+
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
