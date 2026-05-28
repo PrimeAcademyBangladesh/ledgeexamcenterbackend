@@ -1,53 +1,49 @@
-# Python Byte-compiled / optimized / DLL files
+# ───────── Python ─────────
 __pycache__/
 *.py[cod]
 *$py.class
+*.egg-info/
 
-# Virtual Environments
+# ───────── Virtual envs ─────────
 venv/
 env/
 ENV/
-.env/
 .venv/
-.agents
-.codex
-.env.dev
-.env.prod
-.env.example
-# Django-specific files
+.env/
+
+# ───────── Django ─────────
 *.log
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
-
-# Media and Static folders
-# (Only ignore if you want to keep uploaded media/collected static out of Git)
-
 staticfiles/
-API_CONTRACTS.md
-docs/
-docs
-# Environment variables (Sensitive Info)
+media/
+
+# ───────── Secrets (.env stays out, .env.example stays in) ─────────
 .env
 .env.dev
 .env.prod
 .flaskenv
 
-# IDE Settings (Optional but recommended)
-.vscode/
+# ───────── IDE / OS ─────────
 .idea/
+.vscode/
+.vs_code/
 *.swp
 *.swo
+.DS_Store
+.DS_*
+._*
 
-# Testing / Coverage
+# ───────── Tooling ─────────
 .tox/
 .coverage
-.cache
 htmlcov/
+.cache
 .pytest_cache/
-.idea
-db.sqlite3
-.vs_code
-.DS_store
-.ds*
-.DS*
+.agents/
+.codex/
+.claude/
+
+# ───────── Local-only docs (kept on disk, not in git) ─────────
+docs/
