@@ -4,6 +4,7 @@ DEBUG = False
 
 FRONTEND_URL = 'https://examination.leadedgeltd.org'
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '').split(',')
+CORS_ALLOW_CREDENTIALS=True
 
 DATABASES = {
     'default': {
