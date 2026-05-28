@@ -25,3 +25,4 @@ tests/
 pytest.ini
 examinationleadedge/settings/test.py
 requirements-test.txt
+.env.example

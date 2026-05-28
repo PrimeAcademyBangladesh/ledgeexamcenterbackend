@@ -22,7 +22,7 @@ db.sqlite3-journal
 
 # Media and Static folders
 # (Only ignore if you want to keep uploaded media/collected static out of Git)
-media/
+
 staticfiles/
 API_CONTRACTS.md
 docs/

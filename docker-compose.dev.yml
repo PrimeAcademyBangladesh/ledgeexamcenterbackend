@@ -1,31 +1,37 @@
+name: leadedge-dev
+
 services:
 
   api:
     build:
       context: .
       dockerfile: docker/django/Dockerfile
+    container_name: leadedge-dev-api
     command: gunicorn examinationleadedge.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 120
     environment:
       RUN_MIGRATIONS: "1"
     ports:
-      - "8020:8000"
+      - "127.0.0.1:8020:8000"
     env_file:
-      - /etc/examcenterleadedge/.env
+      - /etc/examcenterleadedge/dev/.env
     volumes:
       - .:/app
-      - /etc/examcenterleadedge/staticfiles:/app/staticfiles
-      - /etc/examcenterleadedge/media:/app/media
+      - /etc/examcenterleadedge/dev/staticfiles:/app/staticfiles
+      - /etc/examcenterleadedge/dev/media:/app/media
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_started
     restart: unless-stopped
+    networks:
+      - leadedge-dev-net
 
   postgres:
     image: postgres:16
+    container_name: leadedge-dev-postgres
     env_file:
-      - /etc/examcenterleadedge/.env
+      - /etc/examcenterleadedge/dev/.env
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -34,39 +40,50 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
+    networks:
+      - leadedge-dev-net
 
   redis:
     image: redis:7
+    container_name: leadedge-dev-redis
     restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    networks:
+      - leadedge-dev-net
 
   celery_worker:
     build:
       context: .
       dockerfile: docker/django/Dockerfile
+    container_name: leadedge-dev-celery-worker
     command: celery -A examinationleadedge worker -l info
     environment:
       RUN_MIGRATIONS: "0"
     env_file:
-      - /etc/examcenterleadedge/.env
+      - /etc/examcenterleadedge/dev/.env
     volumes:
       - .:/app
-      - /etc/examcenterleadedge/media:/app/media
+      - /etc/examcenterleadedge/dev/media:/app/media
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_started
     restart: unless-stopped
+    networks:
+      - leadedge-dev-net
 
   celery_beat:
     build:
       context: .
       dockerfile: docker/django/Dockerfile
+    container_name: leadedge-dev-celery-beat
     command: celery -A examinationleadedge beat -l info --schedule /tmp/celerybeat-schedule
     environment:
       RUN_MIGRATIONS: "0"
     env_file:
-      - /etc/examcenterleadedge/.env
+      - /etc/examcenterleadedge/dev/.env
     volumes:
       - .:/app
     depends_on:
@@ -75,6 +92,13 @@ services:
       redis:
         condition: service_started
     restart: unless-stopped
+    networks:
+      - leadedge-dev-net
 
 volumes:
   postgres_data:
+  redis_data:
+
+networks:
+  leadedge-dev-net:
+    driver: bridge

@@ -3,41 +3,62 @@
         test test-qualification test-pytest coverage lint bash clean resetdb rebuild
 
 # ─────────────────────────────────────────────────────────
+# Environment selector
+# ─────────────────────────────────────────────────────────
+# Auto-detected from the current directory name:
+#   /var/www/leadedge/backend/dev        → ENV=dev
+#   /var/www/leadedge/backend/production → ENV=production
+#   anywhere else (e.g. local laptop)    → ENV=dev (fallback)
+#
+# Override anytime by passing it explicitly:
+#   make ENV=production rebuild
+# ─────────────────────────────────────────────────────────
+
+DETECTED_ENV := $(notdir $(CURDIR))
+ENV ?= $(if $(filter $(DETECTED_ENV),dev production),$(DETECTED_ENV),dev)
+
+COMPOSE_FILE := docker-compose.$(ENV).yml
+COMPOSE := docker compose -f $(COMPOSE_FILE)
+
+# Print the resolved env on every run so you always see which stack you're hitting
+$(info ▶ ENV=$(ENV)  COMPOSE_FILE=$(COMPOSE_FILE))
+
+# ─────────────────────────────────────────────────────────
 # Containers
 # ─────────────────────────────────────────────────────────
 
 up:
-	docker compose up -d
+	$(COMPOSE) up -d
 
 build:
-	docker compose build
+	$(COMPOSE) build
 
 start:
-	docker compose up -d --build
+	$(COMPOSE) up -d --build
 
 down:
-	docker compose down
+	$(COMPOSE) down
 
 restart:
-	docker compose restart
+	$(COMPOSE) restart
 
 rebuild:
-	docker compose down --remove-orphans && docker compose up -d --build
+	$(COMPOSE) down --remove-orphans && $(COMPOSE) up -d --build
 
 logs:
-	docker compose logs -f
+	$(COMPOSE) logs -f
 
 logs-api:
-	docker compose logs -f api
+	$(COMPOSE) logs -f api
 
 logs-worker:
-	docker compose logs -f celery_worker
+	$(COMPOSE) logs -f celery_worker
 
 logs-beat:
-	docker compose logs -f celery_beat
+	$(COMPOSE) logs -f celery_beat
 
 test:
-	docker compose exec -T api python manage.py test
+	$(COMPOSE) exec -T api python manage.py test
 
 
 # ─────────────────────────────────────────────────────────
@@ -45,63 +66,63 @@ test:
 # ─────────────────────────────────────────────────────────
 
 shell:
-	docker compose exec api python manage.py shell
+	$(COMPOSE) exec api python manage.py shell
 
 migrate:
-	docker compose exec -T api python manage.py migrate
+	$(COMPOSE) exec -T api python manage.py migrate
 
 makemigrations:
-	docker compose exec -T api python manage.py makemigrations
+	$(COMPOSE) exec -T api python manage.py makemigrations
 
 superuser:
-	docker compose exec api python manage.py createsuperuser
+	$(COMPOSE) exec api python manage.py createsuperuser
 
 setup-admin:
-	docker compose exec -T api python manage.py create_superadmin
+	$(COMPOSE) exec -T api python manage.py create_superadmin
 
 collectstatic:
-	docker compose exec -T api python manage.py collectstatic --noinput
+	$(COMPOSE) exec -T api python manage.py collectstatic --noinput
 
 check:
-	docker compose exec -T api python manage.py check
+	$(COMPOSE) exec -T api python manage.py check
 
 # ─────────────────────────────────────────────────────────
 # Database
 # ─────────────────────────────────────────────────────────
 
 dbshell:
-	docker compose exec api python manage.py dbshell
+	$(COMPOSE) exec api python manage.py dbshell
 
 psql:
-	docker compose exec postgres psql -U $$POSTGRES_USER -d $$POSTGRES_DB
+	$(COMPOSE) exec postgres psql -U $$POSTGRES_USER -d $$POSTGRES_DB
 
 resetdb:
-	@echo "⚠️  WARNING: This will DELETE ALL DATA"
+	@echo "⚠️  WARNING: This will DELETE ALL DATA in ENV=$(ENV)"
 	@read -p "Type 'YES' to continue: " confirm && [ "$$confirm" = "YES" ] || exit 1
-	docker compose exec postgres psql -U $$POSTGRES_USER -c "DROP DATABASE IF EXISTS $$POSTGRES_DB;"
-	docker compose exec postgres psql -U $$POSTGRES_USER -c "CREATE DATABASE $$POSTGRES_DB;"
+	$(COMPOSE) exec postgres psql -U $$POSTGRES_USER -c "DROP DATABASE IF EXISTS $$POSTGRES_DB;"
+	$(COMPOSE) exec postgres psql -U $$POSTGRES_USER -c "CREATE DATABASE $$POSTGRES_DB;"
 
 # ─────────────────────────────────────────────────────────
 # Dev Tools (DO NOT USE IN PROD)
 # ─────────────────────────────────────────────────────────
 
 test-pytest:
-	docker compose exec api pytest
+	$(COMPOSE) exec api pytest
 
 coverage:
-	docker compose exec api pytest --cov
+	$(COMPOSE) exec api pytest --cov
 
 lint:
-	docker compose exec api pylint .
+	$(COMPOSE) exec api pylint .
 
 bash:
-	docker compose exec api bash
+	$(COMPOSE) exec api bash
 
 # ─────────────────────────────────────────────────────────
 # Cleanup (VERY DANGEROUS)
 # ─────────────────────────────────────────────────────────
 
 clean:
-	@echo "⚠️  WARNING: This will REMOVE ALL CONTAINERS + VOLUMES"
+	@echo "⚠️  WARNING: This will REMOVE ALL CONTAINERS + VOLUMES in ENV=$(ENV)"
 	@read -p "Type 'DELETE' to continue: " confirm && [ "$$confirm" = "DELETE" ] || exit 1
-	docker compose down -v
+	$(COMPOSE) down -v

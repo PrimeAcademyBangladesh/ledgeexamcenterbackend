@@ -33,6 +33,9 @@ jobs:
     name: Build and Deploy DEV
     runs-on: ubuntu-latest
     needs: test
+    environment:
+      name: dev
+      url: https://devapi.leadedgeltd.org
 
     steps:
       - name: Checkout code
@@ -55,7 +58,7 @@ jobs:
           key: ${{ secrets.LEADEDGE_SSH_PRIVATE_KEY }}
           port: ${{ secrets.LEADEDGE_SSH_PORT }}
           source: "./"
-          target: "/var/www/examcenterleadedge"
+          target: "/var/www/leadedge/backend/dev"
           strip_components: 1
           rm: false
           exclude: ".env,.env.prod,.env.dev,.env.example,tests/,pytest.ini,examinationleadedge/settings/test.py"
@@ -68,7 +71,7 @@ jobs:
           key: ${{ secrets.LEADEDGE_SSH_PRIVATE_KEY }}
           port: ${{ secrets.LEADEDGE_SSH_PORT }}
           script: |
-            cd /var/www/examcenterleadedge
+            cd /var/www/leadedge/backend/dev
             make rebuild
             sudo systemctl reload nginx
             echo "DEV deployment completed"
