@@ -8,7 +8,7 @@ questions. It is used by:
 """
 
 import random
-from datetime import datetime, timedelta, timezone as dt_tz
+from datetime import datetime, timedelta
 from django.db import transaction
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
@@ -265,12 +265,17 @@ def _compute_pin_window(
     Sit-now:    [now,              now       + duration + extra]
                 — the learner can use the PIN immediately; scheduled
                   date/time becomes informational only.
+
+    scheduled_date/scheduled_time are entered (and displayed) in the
+    server's local timezone (TIME_ZONE, e.g. Europe/London), not UTC —
+    they must be localised with make_aware(), not force-tagged as UTC,
+    or the window drifts by an hour whenever the local zone is in DST.
     """
     duration = timedelta(minutes=exam_config.time_limit_minutes + (extra_minutes or 0))
     if allow_immediate_start:
         start_dt = timezone.now()
         return start_dt, start_dt + duration
-    start_dt = datetime.combine(scheduled_date, scheduled_time, tzinfo=dt_tz.utc)
+    start_dt = timezone.make_aware(datetime.combine(scheduled_date, scheduled_time))
     return start_dt - timedelta(minutes=5), start_dt + duration
 
 

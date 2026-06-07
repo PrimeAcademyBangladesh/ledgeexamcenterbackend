@@ -685,16 +685,12 @@ class UpdateLearnerSerializer(serializers.Serializer):
         qualification_id = attrs.get("qualification_id")
         exam_config_id = attrs.get("exam_config_id")
 
-        if qualification_id is None and self.instance is not None:
-            enrollment = self._get_editable_enrollment(self.instance)
-            if enrollment is not None:
-                qualification_id = enrollment.qualification_id
-
-        if exam_config_id is None and self.instance is not None:
-            session = self._get_editable_session(self.instance)
-            if session is not None:
-                exam_config_id = session.exam_config_id
-
+        # Only cross-check consistency when the admin is explicitly setting
+        # *both* fields in this request — falling back to the learner's
+        # current enrollment/session would reject legitimate single-field
+        # edits (e.g. swapping the knowledge test) against stale state, and
+        # would pre-empt the more specific "enrollment/session is completed
+        # and cannot be edited" errors raised in update().
         if qualification_id and exam_config_id:
             matches = ExamConfig.objects.filter(
                 pk=exam_config_id,

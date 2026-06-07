@@ -550,6 +550,17 @@ class ExamSessionViewSet(viewsets.ModelViewSet):
     def verify_id(self, request, pk=None):
         with transaction.atomic():
             session = self._get_locked_session(pk)
+            # Once the exam has actually started (or finished/cancelled), the
+            # ID-confirmation tick is locked — an invigilator can no longer
+            # un-confirm it. PIN validation already requires id_verified=True
+            # before status can move past "scheduled" (see validate_pin /
+            # unlock), so locking here also covers "unlock moves ID to locked".
+            if session.status != "scheduled":
+                return APIResponse.fail(
+                    message="ID verification is locked once the exam has started and can no longer be changed.",
+                    errors={"id_verified": ["Locked — the exam has already started"]},
+                    status=400,
+                )
             session.id_verified = bool(request.data.get("id_verified", True))
             session.save(update_fields=["id_verified"])
         return APIResponse.ok(
@@ -587,13 +598,16 @@ class ExamSessionViewSet(viewsets.ModelViewSet):
         )
 
     @action(detail=True, methods=["post"], url_path="allow-immediate-start",
-            permission_classes=[IsAdmin])
+            permission_classes=[IsInvigilatorOrAdmin])
     def allow_immediate_start(self, request, pk=None):
-        """Open the PIN window for an already-scheduled session immediately.
+        """Open the PIN window for an already-scheduled session immediately
+        ("Sit Test Now").
 
-        Used when an admin needs to let a learner sit now (e.g. invigilator
-        ready, learner present) without going through the schedule modal again.
-        Recomputes pin_window_start to now and pin_window_end to now+duration.
+        Used when the invigilator/admin needs to let a learner sit now (e.g.
+        invigilator ready, learner present) without going through the schedule
+        modal again. Recomputes pin_window_start to now and pin_window_end to
+        now+duration. Invigilators are restricted to their own assigned
+        sessions via _get_locked_session()'s row-level filtering.
         """
         with transaction.atomic():
             session = self._get_locked_session(pk)

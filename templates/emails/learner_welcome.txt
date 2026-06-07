@@ -1,0 +1,24 @@
+Lead Edge Exam Centre
+=====================
+
+Hello {{ first_name }},
+
+An account has been created for you on the Lead Edge Exam Centre. You can use it
+to view your bookings and sit your scheduled exams online.
+
+Website:  {{ login_url }}
+Username: {{ username }}
+{% if learner_id %}Learner ID: {{ learner_id }}
+{% endif %}{% if uln %}ULN: {{ uln }}
+{% endif %}
+Before you sign in for the first time, please set your password using the link below:
+
+{{ set_password_url }}
+
+This link will expire in 24 hours. If it expires, you can request a new one from the
+sign-in page using "Forgot password".
+
+If you weren't expecting this email, please contact us at:
+info@leadedgeltd.org
+
+© {{ year }} Lead Edge Ltd. All rights reserved.

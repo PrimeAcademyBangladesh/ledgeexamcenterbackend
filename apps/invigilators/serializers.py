@@ -6,10 +6,12 @@ from `src/services/api/types.ts`.  All output fields use camelCase via
 `source` so the existing Axios layer needs no extra transformation.
 """
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from rest_framework import serializers
 
+from core.email import build_set_password_url, send_email
 from apps.users.models import Role, StaffProfile
 from .models import (
     InvigilatorAvailability,
@@ -207,7 +209,22 @@ class RegisterInvigilatorSerializer(serializers.Serializer):
             user=user, provider=provider, is_primary=True
         )
 
-        # TODO (post-MVP): trigger welcome email with one-time password reset link.
+        # Welcome email — non-blocking failure (mirrors learner registration).
+        try:
+            send_email(
+                subject="Welcome to Lead Edge Exam Centre",
+                to_email=user.email,
+                template_name="invigilator_welcome",
+                context={
+                    "first_name": user.first_name,
+                    "username": user.email,
+                    "login_url": f"{settings.FRONTEND_URL}/test-centre",
+                    "set_password_url": build_set_password_url(user),
+                },
+            )
+        except Exception:
+            pass
+
         return user
 
     def to_representation(self, instance):

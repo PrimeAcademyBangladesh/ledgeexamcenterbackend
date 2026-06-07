@@ -1,0 +1,54 @@
+{% extends "emails/base_email.html" %}
+
+{% block content %}
+<h2 style="margin:0 0 16px; font-size:20px; color:#195e6b;">Welcome to Lead Edge Exam Centre</h2>
+
+<p style="margin:0 0 12px;">Hello <strong>{{ first_name }}</strong>,</p>
+
+<p style="margin:0 0 12px;">
+  An account has been created for you on the Lead Edge Exam Centre. You can use it to
+  view your bookings and sit your scheduled exams online.
+</p>
+
+<table cellpadding="0" cellspacing="0" style="margin:0 0 24px; width:100%; background:#f9fafb; border-radius:6px;">
+  <tr>
+    <td style="padding:16px 20px; font-size:14px; color:#374151;">
+      <strong>Website:</strong> <a href="{{ login_url }}" style="color:#195e6b;">{{ login_url }}</a><br />
+      <strong>Username:</strong> {{ username }}
+      {% if learner_id %}<br /><strong>Learner ID:</strong> {{ learner_id }}{% endif %}
+      {% if uln %}<br /><strong>ULN:</strong> {{ uln }}{% endif %}
+    </td>
+  </tr>
+</table>
+
+<p style="margin:0 0 12px;">
+  Before you sign in for the first time, please set your password using the button below.
+</p>
+
+<div style="text-align:center; margin: 32px 0;">
+  <a href="{{ set_password_url }}"
+     style="display:inline-block; padding:14px 32px; background-color:#195e6b; color:#ffffff;
+            text-decoration:none; border-radius:6px; font-size:15px; font-weight:bold;
+            letter-spacing:0.3px;">
+    Set Your Password
+  </a>
+</div>
+
+<p style="margin:0 0 8px; font-size:13px; color:#6b7280;">
+  Or copy and paste this link into your browser:
+</p>
+<p style="margin:0 0 24px;">
+  <code style="word-break:break-all; font-size:12px; color:#374151; background:#f3f4f6;
+               padding:8px 12px; border-radius:4px; display:block; line-height:1.6;">{{ set_password_url }}</code>
+</p>
+
+<p style="margin:0 0 12px;">
+  This link will expire in <strong>24 hours</strong>. If it expires, you can request a new one
+  from the sign-in page using "Forgot password".
+</p>
+
+<p style="margin:0; font-size:13px; color:#6b7280;">
+  If you weren't expecting this email, please contact us at
+  <a href="mailto:info@leadedgeltd.org" style="color:#195e6b;">info@leadedgeltd.org</a>.
+</p>
+{% endblock %}

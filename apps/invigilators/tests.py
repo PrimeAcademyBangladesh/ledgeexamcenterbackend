@@ -80,7 +80,7 @@ class InvigilatorAvailabilityApiTests(APITestCase):
         response = self.client.get("/invigilators/me/sessions/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data[0]["learner_uln"], "1234567890")
+        self.assertEqual(response.data["data"][0]["learner_uln"], "1234567890")
 
     def test_admin_can_list_invigilator_availability(self):
         self.client.force_authenticate(user=self.admin)

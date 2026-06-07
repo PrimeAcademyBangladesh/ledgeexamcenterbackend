@@ -60,7 +60,7 @@ class AuthTests(APITestCase):
 
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertTrue(res.data["success"])
-        self.assertEqual(res.data["user"]["email"], self.user.email)
+        self.assertEqual(res.data["data"]["user"]["email"], self.user.email)
 
     def test_me_unauthenticated(self):
         url = reverse("user_me")

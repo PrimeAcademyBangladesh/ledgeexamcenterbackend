@@ -30,6 +30,7 @@ POST   /api/provider-centres/             create (admin)
 GET/PATCH/DELETE /api/provider-centres/{id}/
 """
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db.models import Count, Prefetch, Q
 from django.shortcuts import get_object_or_404
@@ -46,6 +47,7 @@ from rest_framework.generics import ListAPIView
 
 from apps.exams.serializers import ExamSessionSerializer
 from apps.users.models import Role, StaffProfile
+from core.email import build_set_password_url, send_email
 from core.responses import APIResponse
 from core.schemas import DEFAULT_ERROR_RESPONSES, EmptyEnvelope, envelope_action, envelope_array, envelope_detail, envelope_list
 
@@ -238,9 +240,18 @@ class InvigilatorViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path="resend-welcome", permission_classes=[IsAuthenticated, IsAdmin])
     def resend_welcome(self, request, pk=None):
         user = self.get_object()
-        # TODO: integrate with your transactional email provider.
-        # email_service.send_welcome(user)
-        return APIResponse.ok(message=f"Welcome email queued for {user.email}")
+        send_email(
+            subject="Welcome to Lead Edge Exam Centre",
+            to_email=user.email,
+            template_name="invigilator_welcome",
+            context={
+                "first_name": user.first_name,
+                "username": user.email,
+                "login_url": f"{settings.FRONTEND_URL}/test-centre",
+                "set_password_url": build_set_password_url(user),
+            },
+        )
+        return APIResponse.ok(message=f"Welcome email re-sent to {user.email}")
 
     # ----- /summary/ -----
     @action(detail=False, methods=["get"], url_path="summary",

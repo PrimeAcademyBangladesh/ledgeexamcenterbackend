@@ -6,7 +6,7 @@ Hierarchy:
   admin / invigilator / learner users  (signal auto-creates profiles)
   enrollment  (LearnerProfile → Qualification)
   exam_config (5 questions per exam, 60 min, pass=60)
-  session     (scheduled 2026-05-21 10:00 UTC, PIN "123456")
+  session     (scheduled 2026-05-21 10:00 Europe/London, PIN "123456")
 """
 
 import datetime as dt
@@ -26,12 +26,12 @@ from apps.exams.services import _compute_pin_window
 
 # ─── Seed dates used across the suite ───────────────────────────────────────
 EXAM_DATE = dt.date(2026, 5, 21)
-EXAM_TIME = dt.time(10, 0, 0)           # 10:00 UTC
-# PIN window: 09:55 – 11:00 UTC
-INSIDE_WINDOW = dt.datetime(2026, 5, 21, 9, 57, 0, tzinfo=dt.timezone.utc)
-BEFORE_WINDOW = dt.datetime(2026, 5, 21, 9, 54, 0, tzinfo=dt.timezone.utc)   # 6 min early
-AFTER_WINDOW  = dt.datetime(2026, 5, 21, 11, 1, 0, tzinfo=dt.timezone.utc)   # 1 min past end
-AT_WINDOW_START = dt.datetime(2026, 5, 21, 9, 55, 0, tzinfo=dt.timezone.utc) # exactly T-5
+EXAM_TIME = dt.time(10, 0, 0)           # 10:00 Europe/London (BST, UTC+1) = 09:00 UTC
+# PIN window (localised correctly): 08:55 – 10:00 UTC
+INSIDE_WINDOW = dt.datetime(2026, 5, 21, 8, 57, 0, tzinfo=dt.timezone.utc)
+BEFORE_WINDOW = dt.datetime(2026, 5, 21, 8, 54, 0, tzinfo=dt.timezone.utc)   # 6 min early
+AFTER_WINDOW  = dt.datetime(2026, 5, 21, 10, 1, 0, tzinfo=dt.timezone.utc)   # 1 min past end
+AT_WINDOW_START = dt.datetime(2026, 5, 21, 8, 55, 0, tzinfo=dt.timezone.utc) # exactly T-5
 
 
 # ─── Users ──────────────────────────────────────────────────────────────────
@@ -184,8 +184,8 @@ def enrollment2(db, learner_user2, qualification):
 @pytest.fixture
 def session(db, exam_config, learner_user, invigilator_user, enrollment, questions):
     """
-    A fully-configured scheduled session for 2026-05-21 10:00 UTC.
-    PIN window: 09:55 – 11:00.  PIN: "123456".
+    A fully-configured scheduled session for 2026-05-21 10:00 Europe/London (BST = 09:00 UTC).
+    PIN window: 08:55 – 10:00 UTC.  PIN: "123456".
     question_set is the first 5 questions from the fixture.
     LearnerSeenQuestion rows are created to mirror production behaviour.
     """

@@ -1,0 +1,22 @@
+Lead Edge Exam Centre
+=====================
+
+Hello {{ first_name }},
+
+An invigilator account has been created for you on the Lead Edge Exam Centre. You
+can use it to manage your assigned exam sessions and verify learners on exam day.
+
+Website:  {{ login_url }}
+Username: {{ username }}
+
+Before you sign in for the first time, please set your password using the link below:
+
+{{ set_password_url }}
+
+This link will expire in 24 hours. If it expires, you can request a new one from the
+sign-in page using "Forgot password".
+
+If you weren't expecting this email, please contact us at:
+info@leadedgeltd.org
+
+© {{ year }} Lead Edge Ltd. All rights reserved.

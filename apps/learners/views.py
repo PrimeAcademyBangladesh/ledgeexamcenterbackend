@@ -48,7 +48,7 @@ from drf_spectacular.utils import (
 from core.pagination import StandardPagination
 
 from core.responses import APIResponse
-from core.email import send_email
+from core.email import build_set_password_url, send_email
 from core.schemas import DEFAULT_ERROR_RESPONSES, EmptyEnvelope, envelope_array, envelope_detail, envelope_list
 
 from apps.users.models import LearnerProfile, Role
@@ -169,9 +169,11 @@ class LearnerViewSet(viewsets.GenericViewSet):
                 template_name="learner_welcome",
                 context={
                     "first_name": profile.user.first_name,
+                    "username": profile.user.email,
                     "learner_id": profile.learner_id,
                     "uln": profile.uln,
                     "login_url": f"{settings.FRONTEND_URL}/test-centre",
+                    "set_password_url": build_set_password_url(profile.user),
                 },
             )
         except Exception:
@@ -215,9 +217,11 @@ class LearnerViewSet(viewsets.GenericViewSet):
             template_name="learner_welcome",
             context={
                 "first_name": profile.user.first_name,
+                "username": profile.user.email,
                 "learner_id": profile.learner_id,
                 "uln": profile.uln,
                 "login_url": f"{settings.FRONTEND_URL}/test-centre",
+                "set_password_url": build_set_password_url(profile.user),
             },
         )
         return APIResponse.ok(message="Welcome email re-sent")

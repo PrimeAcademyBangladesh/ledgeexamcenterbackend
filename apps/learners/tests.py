@@ -374,7 +374,8 @@ class ReasonableAdjustmentListPaginationTests(APITestCase):
             learner=self.profile,
             notes="Reader support",
             accepted=False,
-            denied=False,
+            denied=True,
+            denial_reason="Not supported for this qualification.",
             extra_time_minutes=0,
             created_by=self.admin,
         )
