@@ -2,7 +2,7 @@
 PDF marksheet renderer for ExamResult — used by /reports/{id}/marksheet/.
 
 Layout (portrait A4):
-  - Teal header: "LEAD EDGE LTD" left | logo centre-right | "MARKSHEET" / "Est. 2009" far right
+  - Teal header: "LEAD EDGE LTD" / "MARKSHEET" left | logo right
   - Gold accent rule
   - Candidate info card (Name, ULN, Qualification, Date in DD/MM/YYYY)
   - Examination Details block
@@ -83,15 +83,12 @@ def _draw_header(c: canvas.Canvas) -> None:
     c.setFillColor(TEAL)
     c.rect(0, PAGE_H - band_h, PAGE_W, band_h, fill=1, stroke=0)
 
-    # Left: company name → MARKSHEET → Est. 2009 stacked
+    # Left: company name → MARKSHEET stacked
     c.setFillColor(white)
     c.setFont("Helvetica-Bold", 20)
     c.drawString(MARGIN, PAGE_H - band_h + 26 * mm, "LEAD EDGE LTD")
     c.setFont("Helvetica-Bold", 11)
     c.drawString(MARGIN, PAGE_H - band_h + 18 * mm, "MARKSHEET")
-    c.setFillColor(TEAL_LIGHT)
-    c.setFont("Helvetica", 9)
-    c.drawString(MARGIN, PAGE_H - band_h + 12 * mm, "Est. 2009")
 
     # Right: logo
     logo = _logo_reader()
@@ -114,10 +111,6 @@ def _draw_gold_rule(c: canvas.Canvas, y: float) -> None:
 
 
 def _draw_candidate_block(c: canvas.Canvas, result, top: float) -> float:
-    h = 36 * mm
-    c.setFillColor(LIGHT_BG)
-    c.roundRect(MARGIN, top - h, PAGE_W - 2 * MARGIN, h, 2 * mm, fill=1, stroke=0)
-
     learner = result.learner
     full_name = f"{learner.first_name} {learner.last_name}".strip()
     profile = getattr(learner, "learner_profile", None)
@@ -132,11 +125,23 @@ def _draw_candidate_block(c: canvas.Canvas, result, top: float) -> float:
     col_w = (PAGE_W - 2 * MARGIN) / 2
     left_x  = MARGIN + 8 * mm
     right_x = MARGIN + col_w + 4 * mm
+    # Cap the short fixed-format fields' width so they ellipsise instead of
+    # overrunning into the neighbouring column. The qualification title can
+    # run much longer, so it wraps onto extra lines instead (see _wrap_text);
+    # the card grows to fit however many lines that produces.
+    col_max_w = col_w - 10 * mm
+    value_font, value_size, line_gap = "Helvetica-Bold", 11, 4.6 * mm
 
-    _label_value(c, left_x,  top - 9 * mm,  "CANDIDATE NAME", full_name)
-    _label_value(c, right_x, top - 9 * mm,  "ULN",            str(uln))
-    _label_value(c, left_x,  top - 22 * mm, "QUALIFICATION",  result.qualification.title)
-    _label_value(c, right_x, top - 22 * mm, "DATE",           date_str)
+    qualification_lines = _wrap_text(c, result.qualification.title, value_font, value_size, col_max_w)
+    h = 36 * mm + (len(qualification_lines) - 1) * line_gap
+
+    c.setFillColor(LIGHT_BG)
+    c.roundRect(MARGIN, top - h, PAGE_W - 2 * MARGIN, h, 2 * mm, fill=1, stroke=0)
+
+    _label_value(c, left_x,  top - 9 * mm,  "CANDIDATE NAME", full_name, max_width=col_max_w)
+    _label_value(c, right_x, top - 9 * mm,  "ULN",            str(uln), max_width=col_max_w)
+    _label_lines(c, left_x,  top - 22 * mm, "QUALIFICATION",  qualification_lines, line_gap=line_gap)
+    _label_value(c, right_x, top - 22 * mm, "DATE",           date_str, max_width=col_max_w)
 
     return top - h
 
@@ -209,10 +214,53 @@ def _draw_footer(c: canvas.Canvas) -> None:
 
 
 # ── Helpers ───────────────────────────────────────────────────────
-def _label_value(c: canvas.Canvas, x: float, y: float, label: str, value: str) -> None:
+def _ellipsise(c: canvas.Canvas, text: str, font_name: str, font_size: float, max_width: float) -> str:
+    """Shorten `text` with a trailing "…" until it fits within `max_width`."""
+    if c.stringWidth(text, font_name, font_size) <= max_width:
+        return text
+    ellipsis = "…"
+    while text and c.stringWidth(text + ellipsis, font_name, font_size) > max_width:
+        text = text[:-1]
+    return (text + ellipsis) if text else ellipsis
+
+
+def _label_value(c: canvas.Canvas, x: float, y: float, label: str, value: str,
+                 max_width: float | None = None) -> None:
+    c.setFillColor(LIGHT_LABEL)
+    c.setFont("Helvetica", 7.5)
+    c.drawString(x, y, label)
+    c.setFillColor(DARK_TEXT)
+    value_font, value_size = "Helvetica-Bold", 11
+    c.setFont(value_font, value_size)
+    if max_width is not None:
+        value = _ellipsise(c, value, value_font, value_size, max_width)
+    c.drawString(x, y - 5 * mm, value)
+
+
+def _wrap_text(c: canvas.Canvas, text: str, font_name: str, font_size: float, max_width: float) -> list[str]:
+    """Greedy word-wrap: split `text` into lines that each fit `max_width`."""
+    words = text.split()
+    lines: list[str] = []
+    current = ""
+    for word in words:
+        candidate = f"{current} {word}".strip()
+        if not current or c.stringWidth(candidate, font_name, font_size) <= max_width:
+            current = candidate
+        else:
+            lines.append(current)
+            current = word
+    if current:
+        lines.append(current)
+    return lines or [text]
+
+
+def _label_lines(c: canvas.Canvas, x: float, y: float, label: str, lines: list[str],
+                 line_gap: float) -> None:
+    """Like `_label_value`, but draws a pre-wrapped multi-line value."""
     c.setFillColor(LIGHT_LABEL)
     c.setFont("Helvetica", 7.5)
     c.drawString(x, y, label)
     c.setFillColor(DARK_TEXT)
     c.setFont("Helvetica-Bold", 11)
-    c.drawString(x, y - 5 * mm, value)
+    for i, line in enumerate(lines):
+        c.drawString(x, y - 5 * mm - i * line_gap, line)
