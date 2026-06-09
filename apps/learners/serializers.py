@@ -72,6 +72,10 @@ class LearnerSerializer(serializers.ModelSerializer):
     pinWindowActive = serializers.SerializerMethodField()
     passedExamConfigIds = serializers.SerializerMethodField()
 
+    # Reasonable adjustment summary — drives the badge on the learner card
+    hasAcceptedAdjustment = serializers.SerializerMethodField()
+    adjustmentExtraTimeMinutes = serializers.SerializerMethodField()
+
     class Meta:
         model = LearnerProfile
         fields = [
@@ -84,6 +88,7 @@ class LearnerSerializer(serializers.ModelSerializer):
             "nextExamTitle", "nextExamInvigilatorName",
             "upcomingExamCount", "pastExamCount", "failedExamCount",
             "pinWindowActive", "passedExamConfigIds",
+            "hasAcceptedAdjustment", "adjustmentExtraTimeMinutes",
             "createdAt",
         ]
 
@@ -277,6 +282,19 @@ class LearnerSerializer(serializers.ModelSerializer):
             except Exception:
                 continue
         return sorted(ids)
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_hasAcceptedAdjustment(self, obj) -> bool:
+        return any(
+            ra.accepted for ra in obj.reasonable_adjustments.all()
+        )
+
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
+    def get_adjustmentExtraTimeMinutes(self, obj):
+        for ra in obj.reasonable_adjustments.all():
+            if ra.accepted and ra.extra_time_minutes:
+                return ra.extra_time_minutes
+        return None
 
 
 # ─────────────────────────────────────────────────────────────
