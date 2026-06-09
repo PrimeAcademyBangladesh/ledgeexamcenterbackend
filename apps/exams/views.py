@@ -1146,6 +1146,8 @@ class ExamResultViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewse
         u = self.request.user
         if u.role == "learner":
             qs = qs.filter(learner=u)
+        elif u.role == "invigilator":
+            qs = qs.filter(session__invigilator=u)
         if learner_id := self.request.query_params.get("learner_id"):
             qs = qs.filter(learner_id=learner_id)
         if qualification_id := self.request.query_params.get("qualification_id"):
@@ -1374,6 +1376,8 @@ class RetakeRequestViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         u = self.request.user
         if u.role == "learner":
             qs = qs.filter(learner=u)
+        elif u.role == "invigilator":
+            qs = qs.filter(previous_result__session__invigilator=u)
         if status_q := self.request.query_params.get("status"):
             qs = qs.filter(status=status_q)
         if lid := self.request.query_params.get("learner_id"):
