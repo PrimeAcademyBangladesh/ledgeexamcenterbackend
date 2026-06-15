@@ -345,6 +345,68 @@ class LearnerListContractTests(APITestCase):
         self.assertEqual(learner["pin"], "654321")
 
 
+class LearnerSearchTests(APITestCase):
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            email="admin-search@example.com",
+            password="AdminPass123!",
+            first_name="Admin",
+            last_name="User",
+            role=Role.ADMIN,
+        )
+        self.aothy = User.objects.create_user(
+            email="aothy.moon@example.com",
+            password="LearnerPass123!",
+            first_name="Aothy",
+            last_name="Moon",
+            role=Role.LEARNER,
+        )
+        self.aothy.learner_profile.uln = "1111111111"
+        self.aothy.learner_profile.save()
+
+        self.bob = User.objects.create_user(
+            email="bob.smith@example.com",
+            password="LearnerPass123!",
+            first_name="Bob",
+            last_name="Smith",
+            role=Role.LEARNER,
+        )
+        self.bob.learner_profile.uln = "2222222222"
+        self.bob.learner_profile.save()
+
+        self.client.force_authenticate(user=self.admin)
+
+    def test_search_by_full_name_returns_matching_learner(self):
+        response = self.client.get(reverse("learner-list"), {"search": "Aothy Moon"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.data["data"]["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["email"], "aothy.moon@example.com")
+
+    def test_search_by_first_name_returns_matching_learner(self):
+        response = self.client.get(reverse("learner-list"), {"search": "Bob"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.data["data"]["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["email"], "bob.smith@example.com")
+
+    def test_search_by_uln_returns_matching_learner(self):
+        response = self.client.get(reverse("learner-list"), {"search": "2222222222"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.data["data"]["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["email"], "bob.smith@example.com")
+
+    def test_search_with_no_match_returns_empty(self):
+        response = self.client.get(reverse("learner-list"), {"search": "nonexistent"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["data"]["count"], 0)
+
+
 class ReasonableAdjustmentListPaginationTests(APITestCase):
     def setUp(self):
         self.admin = User.objects.create_user(

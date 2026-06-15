@@ -3,7 +3,8 @@ apps/learners/filters.py
 Powers AdminLearners search box + qualification filter.
 """
 import django_filters
-from django.db.models import Q
+from django.db.models import Q, Value
+from django.db.models.functions import Concat
 
 from apps.users.models import LearnerProfile
 
@@ -21,9 +22,14 @@ class LearnerFilter(django_filters.FilterSet):
     def filter_search(self, qs, name, value):
         if not value:
             return qs
-        return qs.filter(
+        # Match first/last name individually as well as "First Last" combined,
+        # so searching by a learner's full name returns results.
+        return qs.annotate(
+            full_name=Concat("user__first_name", Value(" "), "user__last_name")
+        ).filter(
             Q(user__first_name__icontains=value)
             | Q(user__last_name__icontains=value)
+            | Q(full_name__icontains=value)
             | Q(user__email__icontains=value)
             | Q(uln__icontains=value)
             | Q(learner_id__icontains=value)
