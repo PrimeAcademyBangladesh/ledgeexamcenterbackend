@@ -12,10 +12,12 @@ Rules verified:
   - pin_active=False blocks PIN regardless of time
 """
 
+import datetime as dt
+
 import pytest
 from freezegun import freeze_time
 
-from .conftest import BEFORE_WINDOW, AT_WINDOW_START, INSIDE_WINDOW, AFTER_WINDOW
+from .conftest import BEFORE_WINDOW, AT_WINDOW_START, INSIDE_WINDOW, AFTER_WINDOW, make_answers
 
 
 URL = "/exams/validate-pin/"
@@ -112,6 +114,41 @@ def test_pin_sets_session_to_in_progress(learner_client, session):
     session.refresh_from_db()
     assert session.status == "in_progress"
     assert session.started_at is not None
+
+
+@pytest.mark.django_db
+def test_time_taken_after_invigilator_unlock_before_pin(invigilator_client, learner_client, session):
+    """
+    Invigilator "Unlock Test" flips status to in_progress before the learner
+    enters their PIN. started_at must still be recorded on PIN entry — and
+    submit's time_taken_seconds must reflect the real elapsed time, not 0.
+    """
+    start = INSIDE_WINDOW
+    end = start + dt.timedelta(minutes=25, seconds=13)
+
+    with freeze_time(start):
+        r = invigilator_client.post(f"/exams/sessions/{session.id}/unlock/")
+        assert r.status_code == 200
+
+    session.refresh_from_db()
+    assert session.status == "in_progress"
+    assert session.started_at is None
+
+    with freeze_time(start):
+        r = validate(learner_client, session)
+        assert r.status_code == 200
+
+    session.refresh_from_db()
+    assert session.started_at == start
+
+    with freeze_time(end):
+        r = learner_client.post(
+            f"/exams/{session.id}/submit/",
+            {"session_id": str(session.id), "answers": make_answers(session.question_set)},
+            format="json",
+        )
+        assert r.status_code in (200, 201)
+        assert r.json()["data"]["time_taken_seconds"] == 25 * 60 + 13
 
 
 @pytest.mark.django_db

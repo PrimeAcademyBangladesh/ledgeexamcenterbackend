@@ -34,7 +34,7 @@ Endpoint summary (all paths assume the urls.py in this folder):
 """
 import csv
 import io
-from datetime import datetime, timezone as dt_tz, timedelta
+from datetime import datetime, timedelta
 
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
@@ -293,7 +293,7 @@ class MockExamListView(APIView):
                 .exclude(status="withdrawn")
                 .values_list("qualification_id", flat=True)
             ) if profile else []
-            qs = qs.filter(qualification_id__in=list(qualification_ids))
+            qs = qs.filter(qualification_id__in=qualification_ids)
         return APIResponse.ok(
             data=ExamConfigSerializer(qs, many=True).data,
             message="Mock exams retrieved successfully.",
@@ -540,6 +540,7 @@ class ExamSessionViewSet(viewsets.ModelViewSet):
             session = self._get_locked_session(pk)
             session.pin = s.validated_data["pin"]
             session.save(update_fields=["pin"])
+        session = _session_qs().get(pk=session.pk)
         return APIResponse.ok(
             data=ExamSessionSerializer(session).data,
             message="Session PIN updated successfully.",
@@ -563,6 +564,7 @@ class ExamSessionViewSet(viewsets.ModelViewSet):
                 )
             session.id_verified = bool(request.data.get("id_verified", True))
             session.save(update_fields=["id_verified"])
+        session = _session_qs().get(pk=session.pk)
         return APIResponse.ok(
             data=ExamSessionSerializer(session).data,
             message="Session ID verification updated successfully.",
@@ -592,6 +594,7 @@ class ExamSessionViewSet(viewsets.ModelViewSet):
                     f"{prefix}{reason}\n{existing}" if existing else f"{prefix}{reason}"
                 )
             session.save(update_fields=["status", "pin_active", "incident_notes"])
+        session = _session_qs().get(pk=session.pk)
         return APIResponse.ok(
             data=ExamSessionSerializer(session).data,
             message="Session cancelled.",
@@ -628,6 +631,7 @@ class ExamSessionViewSet(viewsets.ModelViewSet):
             session.save(update_fields=[
                 "allow_immediate_start", "pin_window_start", "pin_window_end",
             ])
+        session = _session_qs().get(pk=session.pk)
         return APIResponse.ok(
             data=ExamSessionSerializer(session).data,
             message="Session is now sit-now: PIN is valid immediately.",
@@ -735,6 +739,7 @@ class ExamSessionViewSet(viewsets.ModelViewSet):
             if session.status == "scheduled":
                 session.status = "in_progress"
             session.save(update_fields=["pin_active", "status"])
+        session = _session_qs().get(pk=session.pk)
         return APIResponse.ok(
             data=ExamSessionSerializer(session).data,
             message="Session unlocked successfully.",
@@ -751,6 +756,7 @@ class ExamSessionViewSet(viewsets.ModelViewSet):
             session.completed_successfully = success
             session.incident_notes = notes if not success else ""
             session.save(update_fields=["status", "completed_successfully", "incident_notes"])
+        session = _session_qs().get(pk=session.pk)
         return APIResponse.ok(
             data=ExamSessionSerializer(session).data,
             message="Session completed successfully.",
@@ -839,8 +845,14 @@ class ExamSessionViewSet(viewsets.ModelViewSet):
             ]
             if session.status == "scheduled":
                 session.status = "in_progress"
+                update_fields.append("status")
+            if session.started_at is None:
+                # Falls back to here for sessions the invigilator already
+                # unlocked (status flipped to "in_progress" before the
+                # learner entered their PIN), so time_taken_seconds isn't
+                # always 0 at submission.
                 session.started_at = now
-                update_fields.extend(["status", "started_at"])
+                update_fields.append("started_at")
             session.save(update_fields=update_fields)
 
         return APIResponse.ok(
@@ -875,7 +887,13 @@ class ValidatePinView(APIView):
 
         with transaction.atomic():
             session = get_object_or_404(
-                ExamSession.objects.select_for_update(),
+                # select_related avoids the separate exam_config / qualification
+                # lookups below; of=("self",) keeps the row lock scoped to
+                # exam_session only, so concurrent learners sharing the same
+                # exam_config/qualification aren't serialized against each other.
+                ExamSession.objects
+                    .select_related("exam_config__qualification")
+                    .select_for_update(of=("self",)),
                 id=v["session_id"],
             )
             if session.learner_id != request.user.id:
@@ -931,10 +949,19 @@ class ValidatePinView(APIView):
                     status=400
                 )
 
+            pin_update_fields = []
             if session.status == "scheduled":
                 session.status = "in_progress"
+                pin_update_fields.append("status")
+            if session.started_at is None:
+                # Falls back to here for sessions the invigilator already
+                # unlocked (status flipped to "in_progress" before the
+                # learner entered their PIN), so time_taken_seconds isn't
+                # always 0 at submission.
                 session.started_at = now
-                session.save(update_fields=["status", "started_at"])
+                pin_update_fields.append("started_at")
+            if pin_update_fields:
+                session.save(update_fields=pin_update_fields)
 
             draft = None
             if session.draft_updated_at:
@@ -993,7 +1020,12 @@ class SubmitExamView(APIView):
     @transaction.atomic
     def post(self, request, session_id):
         session = get_object_or_404(
-            ExamSession.objects.select_for_update(),
+            # select_related avoids the lazy loads on exam_config/qualification,
+            # learner, and invigilator below and in ExamResultSerializer;
+            # of=("self",) keeps the row lock scoped to exam_session only.
+            ExamSession.objects
+                .select_related("exam_config__qualification", "learner", "invigilator")
+                .select_for_update(of=("self",)),
             id=session_id,
         )
         if session.learner_id != request.user.id:
@@ -1169,23 +1201,16 @@ class ExamResultViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewse
 
     @staticmethod
     def _uln(result):
-        try:
-            return result.learner.learner_profile.uln or ""
-        except Exception:
-            return ""
+        profile = getattr(result.learner, "learner_profile", None)
+        return profile.uln if profile and profile.uln else ""
 
     @staticmethod
     def _row(i, r):
         minutes = round(r.time_taken_seconds / 60, 1) if r.time_taken_seconds else 0
-        uln = ""
-        try:
-            uln = r.learner.learner_profile.uln or ""
-        except Exception:
-            pass
         return [
             str(i),
             f"{r.learner.first_name} {r.learner.last_name}".strip(),
-            uln,
+            ExamResultViewSet._uln(r),
             r.qualification.title,
             r.exam_config.title,
             r.exam_date.strftime("%d/%m/%Y") if r.exam_date else "",
