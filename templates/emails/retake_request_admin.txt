@@ -1,0 +1,12 @@
+New Resit Request — Lead Edge Exam Centre
+
+A learner has submitted a resit request that requires your review.
+
+Learner: {{ learner_name }}
+Exam:    {{ exam_title }}
+Score:   {{ score }}%
+Requested: {{ requested_at }}
+
+Log in to review the request: {{ admin_url }}
+
+© {{ year }} Lead Edge Ltd.

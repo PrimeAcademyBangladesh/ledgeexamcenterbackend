@@ -1,0 +1,15 @@
+Resit Request Approved — Lead Edge Exam Centre
+
+Hello {{ first_name }},
+
+Your resit request has been approved.
+Your new exam session will be scheduled shortly — check your dashboard for the updated booking.
+
+Exam:           {{ exam_title }}
+Previous score: {{ score }}%
+
+Go to your dashboard: {{ dashboard_url }}
+
+If you have any questions, contact us at info@leadedgeltd.org.
+
+© {{ year }} Lead Edge Ltd.

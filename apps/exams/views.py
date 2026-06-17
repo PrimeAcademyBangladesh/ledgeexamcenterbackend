@@ -62,6 +62,7 @@ from core.permission import (
     IsAdminOrReadOnlyForStaff, IsSessionLearnerOwner,
 )
 from core.responses import APIResponse
+from core.email import send_email
 from .serializers import (
     ExamConfigSerializer,
     ExamConfigDropdownSerializer,
@@ -136,6 +137,25 @@ def _retake_qs():
     return RetakeRequest.objects.select_related(
         "learner", "exam_config__qualification", "previous_result"
     )
+
+
+def _notify_admins_retake_requested(req: RetakeRequest) -> None:
+    """Fire-and-forget: email all active admins about a new retake request."""
+    from django.conf import settings
+    admin_url = f"{settings.FRONTEND_URL}/admin/retakes"
+    admins = User.objects.filter(role="admin", is_active=True).values_list("email", flat=True)
+    ctx = {
+        "learner_name": req.learner.get_full_name() or req.learner.email,
+        "exam_title": req.exam_config.title,
+        "score": round(req.previous_result.score_percent, 1),
+        "requested_at": req.requested_at.strftime("%d %b %Y %H:%M"),
+        "admin_url": admin_url,
+    }
+    for email in admins:
+        try:
+            send_email("New resit request — action required", email, "retake_request_admin", ctx)
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -1448,6 +1468,10 @@ class RequestRetakeView(APIView):
             req = RetakeRequest.objects.create(
                 learner=request.user, exam_config=cfg, previous_result=prev,
             )
+        try:
+            _notify_admins_retake_requested(req)
+        except Exception:
+            pass
         return APIResponse.ok(
             data=RetakeRequestSerializer(req).data,
             message="Retake request submitted successfully.",
@@ -1475,6 +1499,21 @@ class ApproveRetakeView(APIView):
             req.reviewed_at = timezone.now()
             req.reviewed_by = request.user
             req.save(update_fields=["status", "reviewed_at", "reviewed_by"])
+        try:
+            from django.conf import settings
+            send_email(
+                "Your resit request has been approved",
+                req.learner.email,
+                "retake_approved",
+                {
+                    "first_name": req.learner.first_name or req.learner.email,
+                    "exam_title": req.exam_config.title,
+                    "score": round(req.previous_result.score_percent, 1),
+                    "dashboard_url": f"{settings.FRONTEND_URL}/learner/dashboard",
+                },
+            )
+        except Exception:
+            pass
         return APIResponse.ok(
             data=RetakeRequestSerializer(req).data,
             message="Retake request approved successfully.",
@@ -1502,6 +1541,21 @@ class DenyRetakeView(APIView):
             req.reviewed_by = request.user
             req.denial_reason = s.validated_data["denial_reason"]
             req.save(update_fields=["status", "reviewed_at", "reviewed_by", "denial_reason"])
+        try:
+            from django.conf import settings
+            send_email(
+                "Update on your resit request",
+                req.learner.email,
+                "retake_denied",
+                {
+                    "first_name": req.learner.first_name or req.learner.email,
+                    "exam_title": req.exam_config.title,
+                    "score": round(req.previous_result.score_percent, 1),
+                    "denial_reason": req.denial_reason,
+                },
+            )
+        except Exception:
+            pass
         return APIResponse.ok(
             data=RetakeRequestSerializer(req).data,
             message="Retake request denied successfully.",
@@ -1585,6 +1639,24 @@ class CreateResitSessionView(APIView):
                     ]
                 )
             session = _session_qs().get(pk=session.pk)
+        try:
+            from django.conf import settings
+            learner = prev.learner
+            send_email(
+                "Your resit has been scheduled",
+                learner.email,
+                "resit_scheduled",
+                {
+                    "first_name": learner.first_name or learner.email,
+                    "exam_title": cfg.title,
+                    "scheduled_date": scheduled_date.strftime("%d %b %Y"),
+                    "scheduled_time": scheduled_time.strftime("%H:%M"),
+                    "invigilator_name": invigilator.get_full_name() or invigilator.email,
+                    "dashboard_url": f"{settings.FRONTEND_URL}/learner/dashboard",
+                },
+            )
+        except Exception:
+            pass
         return APIResponse.ok(
             data=ExamSessionSerializer(session).data,
             message="Resit session created successfully.",

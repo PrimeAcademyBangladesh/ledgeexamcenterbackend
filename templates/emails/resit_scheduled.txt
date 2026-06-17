@@ -1,0 +1,16 @@
+Your Resit Has Been Scheduled — Lead Edge Exam Centre
+
+Hello {{ first_name }},
+
+Your resit has been approved and a new exam session has been booked for you.
+
+Exam:        {{ exam_title }}
+Date:        {{ scheduled_date }}
+Time:        {{ scheduled_time }}
+Invigilator: {{ invigilator_name }}
+
+Log in on the day to get your session PIN: {{ dashboard_url }}
+
+If you have any questions, contact us at info@leadedgeltd.org.
+
+© {{ year }} Lead Edge Ltd.

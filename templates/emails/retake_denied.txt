@@ -1,0 +1,14 @@
+Resit Request Outcome — Lead Edge Exam Centre
+
+Hello {{ first_name }},
+
+We're sorry to let you know that your resit request has been declined.
+
+Exam:           {{ exam_title }}
+Previous score: {{ score }}%
+{% if denial_reason %}Reason:         {{ denial_reason }}
+{% endif %}
+
+If you believe this decision was made in error, please contact your trainer or us at info@leadedgeltd.org.
+
+© {{ year }} Lead Edge Ltd.
