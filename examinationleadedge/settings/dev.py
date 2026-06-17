@@ -55,7 +55,6 @@ else:
         }
     }
 
-EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
 # ── Security hardening (matches prod; nginx terminates TLS) ────────────────
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')

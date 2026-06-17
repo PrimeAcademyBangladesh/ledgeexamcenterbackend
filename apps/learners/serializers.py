@@ -504,6 +504,13 @@ class RegisterLearnerSerializer(serializers.Serializer):
     allowImmediateStart = serializers.BooleanField(source="allow_immediate_start", default=False)
     pin = serializers.RegexField(r"^\d{6}$")
 
+    # ----- reasonable adjustment (optional) -----
+    reasonableAdjustmentNotes = serializers.CharField(source="ra_notes", required=False, allow_blank=True, default="")
+    reasonableAdjustmentAccepted = serializers.BooleanField(source="ra_accepted", required=False, default=False)
+    reasonableAdjustmentDenied = serializers.BooleanField(source="ra_denied", required=False, default=False)
+    reasonableAdjustmentDenialReason = serializers.CharField(source="ra_denial_reason", required=False, allow_blank=True, default="")
+    reasonableAdjustmentExtraTimeMinutes = serializers.IntegerField(source="ra_extra_time_minutes", required=False, min_value=0, max_value=240, default=0)
+
     # ----- validation -----
     def validate_email(self, value):
         value = value.lower()
@@ -574,6 +581,12 @@ class RegisterLearnerSerializer(serializers.Serializer):
         allow_immediate_start = validated.pop("allow_immediate_start", False)
         pin = validated.pop("pin")
 
+        ra_notes = validated.pop("ra_notes", "") or ""
+        ra_accepted = validated.pop("ra_accepted", False)
+        ra_denied = validated.pop("ra_denied", False)
+        ra_denial_reason = validated.pop("ra_denial_reason", "") or ""
+        ra_extra_time_minutes = validated.pop("ra_extra_time_minutes", 0) or 0
+
         user = User.objects.create_user(
             email=validated["email"],
             password=password,
@@ -589,6 +602,19 @@ class RegisterLearnerSerializer(serializers.Serializer):
         if phone:
             profile.phone = phone
         profile.save()
+
+        # 1b. Reasonable adjustment (optional — only if notes provided and actioned)
+        if ra_notes and (ra_accepted or ra_denied):
+            request = self.context.get("request")
+            ReasonableAdjustment.objects.create(
+                learner=profile,
+                notes=ra_notes,
+                accepted=ra_accepted,
+                denied=ra_denied,
+                denial_reason=ra_denial_reason,
+                extra_time_minutes=ra_extra_time_minutes,
+                created_by=getattr(request, "user", None) if request and request.user.is_authenticated else None,
+            )
 
         # 2. Enrollment
         enrollment = Enrollment.objects.create(
