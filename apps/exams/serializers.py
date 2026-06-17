@@ -334,11 +334,18 @@ class ExamResultSerializer(serializers.ModelSerializer):
     qualification_id = serializers.UUIDField(source="qualification.id", read_only=True)
     qualification_name = serializers.CharField(source="qualification.title", read_only=True)
     uln = serializers.SerializerMethodField()
+    resit_eligible = serializers.SerializerMethodField()
 
     @extend_schema_field(serializers.CharField())
     def get_uln(self, obj) -> str:
         profile = getattr(obj.learner, "learner_profile", None)
         return profile.uln if profile and profile.uln else ""
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_resit_eligible(self, obj) -> bool:
+        from .services import is_resit_eligible
+        return is_resit_eligible(obj.score_percent, obj.exam_config.grade_pass)
+
     violations = IntegrityViolationSerializer(source="session.violations", many=True, read_only=True)
     exam_date = serializers.DateField(read_only=True)
     cert_validity_months = serializers.IntegerField(source="exam_config.cert_validity_months", read_only=True, allow_null=True)
@@ -361,6 +368,7 @@ class ExamResultSerializer(serializers.ModelSerializer):
             "exam_date", "submitted_at",
             "attempt_number",
             "cert_validity_months", "cert_expiry",
+            "resit_eligible",
         ]
 
     @extend_schema_field(serializers.CharField())
