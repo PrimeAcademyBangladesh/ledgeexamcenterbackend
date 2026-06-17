@@ -638,6 +638,8 @@ class RegisterLearnerSerializer(serializers.Serializer):
             scheduled_time=scheduled_time,
             pin=pin,
             allow_immediate_start=allow_immediate_start,
+            reasonable_adjustments=ra_notes if (ra_accepted or ra_denied) else "",
+            extra_time_minutes=ra_extra_time_minutes if ra_accepted else None,
         )
 
         return profile
