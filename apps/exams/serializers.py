@@ -396,6 +396,7 @@ class RetakeRequestSerializer(serializers.ModelSerializer):
     qualification_name = serializers.CharField(source="exam_config.qualification.title", read_only=True)
     previous_score = serializers.IntegerField(source="previous_result.score_percent", read_only=True)
     previous_grade = serializers.CharField(source="previous_result.grade", read_only=True)
+    resit_eligible = serializers.SerializerMethodField()
     reviewed_by = serializers.UUIDField(source="reviewed_by_id", read_only=True, allow_null=True)
     reviewer_name = serializers.SerializerMethodField()
     new_session_id = serializers.UUIDField(read_only=True)
@@ -409,11 +410,17 @@ class RetakeRequestSerializer(serializers.ModelSerializer):
             "learner_id", "learner_name",
             "exam_config_id", "exam_title", "qualification_name",
             "previous_result_id", "previous_score", "previous_grade",
+            "resit_eligible",
             "status", "requested_at",
             "reviewed_at", "reviewed_by", "reviewer_name",
             "denial_reason",
             "new_session_id", "scheduled_date", "scheduled_time",
         ]
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_resit_eligible(self, obj) -> bool:
+        from .services import is_resit_eligible
+        return is_resit_eligible(obj.previous_result.score_percent, obj.exam_config.grade_pass)
 
     @extend_schema_field(serializers.CharField())
     def get_learner_name(self, obj) -> str:
