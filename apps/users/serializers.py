@@ -25,12 +25,35 @@ class LoginSerializer(TokenObtainPairSerializer):
     def validate(self, attrs):
         attrs[self.username_field] = attrs[self.username_field].lower()
         data = super().validate(attrs)
+
+        profile = {}
+        learner_profile = getattr(self.user, "learner_profile", None)
+        if learner_profile:
+            profile = {
+                "learnerId": learner_profile.learner_id,
+                "uln": learner_profile.uln,
+                "dateOfBirth": learner_profile.date_of_birth,
+                "phone": learner_profile.phone,
+                "photo": learner_profile.photo.url if learner_profile.photo else None,
+                "idVerified": learner_profile.id_verified,
+            }
+        else:
+            staff_profile = getattr(self.user, "staff_profile", None)
+            if staff_profile:
+                profile = {
+                    "staffId": staff_profile.staff_id,
+                    "jobTitle": staff_profile.job_title,
+                    "phone": staff_profile.phone,
+                    "photo": staff_profile.photo.url if staff_profile.photo else None,
+                }
+
         data["user"] = {
             "id": str(self.user.id),
             "email": self.user.email,
             "firstName": self.user.first_name,
             "lastName": self.user.last_name,
             "role": self.user.role,
+            "profile": profile,
         }
         return data
 
