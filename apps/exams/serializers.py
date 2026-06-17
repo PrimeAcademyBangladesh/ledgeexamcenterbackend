@@ -333,7 +333,12 @@ class ExamResultSerializer(serializers.ModelSerializer):
     exam_title = serializers.CharField(source="exam_config.title", read_only=True)
     qualification_id = serializers.UUIDField(source="qualification.id", read_only=True)
     qualification_name = serializers.CharField(source="qualification.title", read_only=True)
-    uln = serializers.CharField(source="learner.uln", read_only=True)
+    uln = serializers.SerializerMethodField()
+
+    @extend_schema_field(serializers.CharField())
+    def get_uln(self, obj) -> str:
+        profile = getattr(obj.learner, "learner_profile", None)
+        return profile.uln if profile and profile.uln else ""
     violations = IntegrityViolationSerializer(source="session.violations", many=True, read_only=True)
     exam_date = serializers.DateField(read_only=True)
     cert_validity_months = serializers.IntegerField(source="exam_config.cert_validity_months", read_only=True, allow_null=True)
