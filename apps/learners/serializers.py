@@ -15,7 +15,7 @@ from rest_framework import serializers
 
 from apps.users.models import User, LearnerProfile, Role
 from apps.qualifications.models import Qualification
-from apps.exams.models import ExamConfig
+from apps.exams.models import ExamConfig, ExamSession
 from apps.exams.services import _compute_pin_window, create_scheduled_session
 
 from .models import (
@@ -998,8 +998,20 @@ class CreateReasonableAdjustmentSerializer(serializers.Serializer):
         except LearnerProfile.DoesNotExist:
             raise serializers.ValidationError({"learnerId": "Learner not found."})
         request = self.context.get("request")
-        return ReasonableAdjustment.objects.create(
+        ra = ReasonableAdjustment.objects.create(
             learner=profile,
             created_by=getattr(request, "user", None) if request and request.user.is_authenticated else None,
             **validated,
         )
+
+        # Backfill any scheduled sessions that haven't started yet
+        if ra.accepted and ra.extra_time_minutes:
+            ExamSession.objects.filter(
+                learner=profile.user,
+                status="scheduled",
+            ).update(
+                extra_time_minutes=ra.extra_time_minutes,
+                reasonable_adjustments=ra.notes,
+            )
+
+        return ra
