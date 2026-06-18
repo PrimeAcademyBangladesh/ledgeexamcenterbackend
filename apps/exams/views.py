@@ -1392,6 +1392,15 @@ class ExamResultViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewse
         from apps.reports.marksheet import render_marksheet
 
         result = self.get_object()
+
+        # Learners cannot download until the invigilator confirms the session.
+        # Admins and invigilators bypass this gate.
+        if request.user.role == "learner" and result.session.completed_successfully is not True:
+            return APIResponse.fail(
+                message="Marksheet not available yet — awaiting invigilator confirmation.",
+                status=403,
+            )
+
         pdf_bytes = render_marksheet(result)
         last = result.learner.last_name.replace(" ", "_")
         fname = f"marksheet_{last}_{result.exam_date}.pdf"
