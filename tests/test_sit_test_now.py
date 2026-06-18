@@ -58,8 +58,20 @@ def test_learner_cannot_trigger_sit_now(learner_client, session):
 
 
 @pytest.mark.django_db
-def test_sit_now_rejected_for_non_scheduled_session(invigilator_client, session):
+def test_sit_now_accepted_for_in_progress_session(invigilator_client, session):
+    """allow-immediate-start must work for in_progress too (resume after disconnect)."""
     session.status = "in_progress"
+    session.save(update_fields=["status"])
+
+    r = sit_now(invigilator_client, session)
+    assert r.status_code == 200
+    session.refresh_from_db()
+    assert session.allow_immediate_start is True
+
+
+@pytest.mark.django_db
+def test_sit_now_rejected_for_completed_session(invigilator_client, session):
+    session.status = "completed"
     session.save(update_fields=["status"])
 
     r = sit_now(invigilator_client, session)
