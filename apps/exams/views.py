@@ -634,7 +634,7 @@ class ExamSessionViewSet(viewsets.ModelViewSet):
         """
         with transaction.atomic():
             session = self._get_locked_session(pk)
-            if session.status != "scheduled":
+            if session.status not in {"scheduled", "in_progress"}:
                 return APIResponse.fail(
                     message=f"Session is {session.status}; cannot enable sit-now.",
                     errors={"status": [f"Session is {session.status}"]},
@@ -943,7 +943,10 @@ class ValidatePinView(APIView):
                 )
 
             now = timezone.now()
-            if session.pin_window_start and session.pin_window_end:
+            # Only enforce the PIN window for fresh starts.
+            # If the session is already in_progress the learner is resuming
+            # after a disconnect — they must always be able to re-enter.
+            if session.status != "in_progress" and session.pin_window_start and session.pin_window_end:
                 if now < session.pin_window_start or now > session.pin_window_end:
                     start = session.pin_window_start.isoformat()
                     return APIResponse.fail(
