@@ -1618,12 +1618,17 @@ class CreateResitSessionView(APIView):
             scheduled_date = v.get("scheduled_date") or (timezone.now().date() + timedelta(days=1))
             scheduled_time = v.get("scheduled_time") or datetime.strptime("09:00", "%H:%M").time()
 
+            # Same-day resit: open the PIN immediately so the learner can sit
+            # without waiting for the scheduled time window to arrive.
+            allow_immediate = scheduled_date == timezone.now().date()
+
             session = create_scheduled_session(
                 exam_config=cfg,
                 learner=prev.learner,
                 invigilator=invigilator,
                 scheduled_date=scheduled_date,
                 scheduled_time=scheduled_time,
+                allow_immediate_start=allow_immediate,
                 enrollment=(
                     Enrollment.objects.select_related("learner__user", "qualification")
                     .filter(
