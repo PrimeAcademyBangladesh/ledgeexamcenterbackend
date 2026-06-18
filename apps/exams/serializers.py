@@ -350,6 +350,7 @@ class ExamResultSerializer(serializers.ModelSerializer):
     exam_date = serializers.DateField(read_only=True)
     cert_validity_months = serializers.IntegerField(source="exam_config.cert_validity_months", read_only=True, allow_null=True)
     cert_expiry = serializers.SerializerMethodField()
+    completed_successfully = serializers.BooleanField(source="session.completed_successfully", read_only=True, allow_null=True)
 
     class Meta:
         model = ExamResult
@@ -369,6 +370,7 @@ class ExamResultSerializer(serializers.ModelSerializer):
             "attempt_number",
             "cert_validity_months", "cert_expiry",
             "resit_eligible",
+            "completed_successfully",
         ]
 
     @extend_schema_field(serializers.CharField())
