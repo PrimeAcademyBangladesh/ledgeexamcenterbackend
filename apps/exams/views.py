@@ -1020,6 +1020,7 @@ class ValidatePinView(APIView):
                 "scenarios": scenarios,
                 "timeLimitMinutes": session.exam_config.time_limit_minutes
                                     + (session.extra_time_minutes or 0),
+                "extraTimeMinutes": session.extra_time_minutes or 0,
                 "examTitle": session.exam_config.title,
                 "qualificationTitle": session.exam_config.qualification.title,
                 "draft": draft,
