@@ -190,9 +190,27 @@ class LearnerViewSet(viewsets.GenericViewSet):
         if request.user.role != Role.ADMIN:
             return APIResponse.fail(message="Forbidden", status=status.HTTP_403_FORBIDDEN)
         profile = get_object_or_404(self.get_queryset(), user_id=user_id)
+        old_email = profile.user.email
         serializer = UpdateLearnerSerializer(profile, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         profile = serializer.save()
+        if profile.user.email != old_email:
+            try:
+                send_email(
+                    subject="Welcome to Lead Edge Exam Centre",
+                    to_email=profile.user.email,
+                    template_name="learner_welcome",
+                    context={
+                        "first_name": profile.user.first_name,
+                        "username": profile.user.email,
+                        "learner_id": profile.learner_id,
+                        "uln": profile.uln,
+                        "login_url": f"{settings.FRONTEND_URL}/test-centre",
+                        "set_password_url": build_set_password_url(profile.user),
+                    },
+                )
+            except Exception:
+                pass
         return APIResponse.ok(data=LearnerSerializer(profile).data, message="Learner updated")
 
     @action(detail=True, methods=["post"], permission_classes=[IsAdmin])
