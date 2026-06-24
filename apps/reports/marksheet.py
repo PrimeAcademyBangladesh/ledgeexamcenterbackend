@@ -156,33 +156,10 @@ def _draw_examination_block(c: canvas.Canvas, result, top: float) -> float:
     m, s = divmod(result.time_taken_seconds or 0, 60)
     time_str = f"{m}m {s}s"
 
-    col_w  = (PAGE_W - 2 * MARGIN) / 2
-    left_x  = MARGIN
-    right_x = MARGIN + col_w
+    _label_value(c, MARGIN, top - 16 * mm, "EXAM TITLE", result.exam_config.title)
+    _label_value(c, MARGIN, top - 28 * mm, "TIME TAKEN", time_str)
 
-    extra = getattr(result.session, "extra_time_minutes", None) or 0
-    ra_notes = getattr(result.session, "reasonable_adjustments", None) or ""
-
-    _label_value(c, left_x,  top - 16 * mm, "EXAM TITLE",  result.exam_config.title)
-    _label_value(c, right_x, top - 16 * mm, "INVIGILATOR", result.invigilator_name or "—")
-    _label_value(c, left_x,  top - 28 * mm, "TIME TAKEN",  time_str)
-    if extra > 0:
-        _label_value(c, right_x, top - 28 * mm, "EXTRA TIME",  f"+{extra} min (reasonable adjustment)")
-
-    block_bottom = top - 32 * mm
-    if ra_notes:
-        ra_lines = _wrap_text(c, ra_notes, "Helvetica-Bold", 9, PAGE_W - 2 * MARGIN - 8 * mm)
-        ra_y = block_bottom - 6 * mm
-        c.setFillColor(LIGHT_LABEL)
-        c.setFont("Helvetica", 7.5)
-        c.drawString(MARGIN, ra_y, "REASONABLE ADJUSTMENT")
-        c.setFillColor(DARK_TEXT)
-        c.setFont("Helvetica-Bold", 9)
-        for i, line in enumerate(ra_lines):
-            c.drawString(MARGIN, ra_y - 5 * mm - i * 4.5 * mm, line)
-        block_bottom = ra_y - 5 * mm - len(ra_lines) * 4.5 * mm
-
-    return block_bottom
+    return top - 32 * mm
 
 
 def _draw_score_tile(c: canvas.Canvas, result, top: float) -> float:
