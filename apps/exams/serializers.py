@@ -194,6 +194,7 @@ class ExamQuestionSerializer(serializers.ModelSerializer):
 class ExamSessionSerializer(serializers.ModelSerializer):
     enrollment_id = serializers.UUIDField(read_only=True, allow_null=True)
     exam_title = serializers.CharField(source="exam_config.title", read_only=True)
+    qualification_id = serializers.UUIDField(source="exam_config.qualification_id", read_only=True)
     qualification_title = serializers.CharField(source="exam_config.qualification.title", read_only=True)
     learner_name = serializers.SerializerMethodField()
     learner_uln = serializers.SerializerMethodField()
@@ -205,7 +206,7 @@ class ExamSessionSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "enrollment_id",
-            "exam_config_id", "exam_title", "qualification_title",
+            "exam_config_id", "exam_title", "qualification_id", "qualification_title",
             "learner_id", "learner_name", "learner_uln",
             "invigilator_id", "invigilator_name",
             "scheduled_date", "scheduled_time",
