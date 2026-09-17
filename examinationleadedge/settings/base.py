@@ -9,6 +9,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 SECRET_KEY = os.environ['SECRET_KEY']
 
+ADMIN_URL = os.environ.get('ADMIN_URL', 'admin/')
+
 ALLOWED_HOSTS = [
     "devapi.leadedgeltd.org",
     "examapi.leadedgeltd.org",
