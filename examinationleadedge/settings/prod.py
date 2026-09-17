@@ -19,6 +19,14 @@ CSRF_TRUSTED_ORIGINS = [
     'https://examapi.leadedgeltd.org',
 ]
 
+# JSON-only in prod: no HTML browsable-API UI exposed publicly.
+REST_FRAMEWORK = {
+    **REST_FRAMEWORK,
+    "DEFAULT_RENDERER_CLASSES": (
+        "core.renderers.EnvelopeJSONRenderer",
+    ),
+}
+
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',

@@ -173,6 +173,7 @@ SPECTACULAR_SETTINGS = {
     ),
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
+    "SERVE_PERMISSIONS": ["rest_framework.permissions.IsAdminUser"],
     "COMPONENT_SPLIT_REQUEST": False,
     "SWAGGER_UI_SETTINGS": {
         "defaultModelsExpandDepth": -1,
@@ -288,8 +289,8 @@ SIMPLE_JWT = {
 }
 
 # Celery
-CELERY_BROKER_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
-CELERY_RESULT_BACKEND = os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
+CELERY_BROKER_URL = os.environ['REDIS_URL']
+CELERY_RESULT_BACKEND = os.environ['REDIS_URL']
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
@@ -300,9 +301,9 @@ CELERY_BEAT_SCHEDULER = 'celery.beat.PersistentScheduler'
 CORS_ALLOWED_ORIGINS = os.environ.get('CORS_ALLOWED_ORIGINS', 'http://localhost:3000').split(',')
 CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS
 
-EMAIL_HOST = os.environ.get('EMAIL_HOST', 'smtp.resend.com')
+EMAIL_HOST = os.environ['EMAIL_HOST']
 EMAIL_PORT = int(os.environ.get('EMAIL_PORT', 465))
-EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', 'resend')
+EMAIL_HOST_USER = os.environ['EMAIL_HOST_USER']
 EMAIL_HOST_PASSWORD = os.environ['EMAIL_HOST_PASSWORD']
 EMAIL_USE_SSL = True
 EMAIL_USE_TLS = False
