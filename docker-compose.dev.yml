@@ -46,7 +46,7 @@ services:
   redis:
     image: redis:7
     container_name: leadedge-dev-redis
-    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}"]
+    command: ["sh", "-c", "redis-server --requirepass \"$$REDIS_PASSWORD\""]
     restart: unless-stopped
     env_file:
       - /etc/examcenterleadedge/dev/.env
