@@ -301,6 +301,11 @@ CELERY_BEAT_SCHEDULER = 'celery.beat.PersistentScheduler'
 CORS_ALLOWED_ORIGINS = os.environ.get('CORS_ALLOWED_ORIGINS', 'http://localhost:3000').split(',')
 CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS
 
+# Matches nginx's client_max_body_size (20M) as a defense-in-depth cap in
+# case a request ever reaches Django directly, bypassing nginx.
+DATA_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024
+FILE_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024
+
 EMAIL_HOST = os.environ['EMAIL_HOST']
 EMAIL_PORT = int(os.environ.get('EMAIL_PORT', 465))
 EMAIL_HOST_USER = os.environ['EMAIL_HOST_USER']
